@@ -1,0 +1,51 @@
+version: '3.8'
+
+services:
+  # Backend API Server
+  server:
+    build: ./server
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - PORT=3001
+    volumes:
+      - ./server:/app
+      - ./workspaces:/app/workspaces
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - redis
+    networks:
+      - cloudcodex
+
+  # Frontend (Development)
+  client:
+    build: ./client
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./client:/app
+      - /app/node_modules
+    environment:
+      - VITE_API_URL=http://localhost:3001
+    networks:
+      - cloudcodex
+
+  # Redis for caching and rate limiting
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    networks:
+      - cloudcodex
+  # Language Execution Containers (built separately)
+  # These are used by the execution engine
+
+networks:
+  cloudcodex:
+    driver: bridge
+
+volumes:
+  redis_data:

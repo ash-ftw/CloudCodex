@@ -1,0 +1,293 @@
+Role:
+You are a senior full-stack architect, DevOps engineer, and security specialist. Design and implement a production-grade web application named CloudCodeX.
+
+Objective
+
+Build CloudCodeX, a secure, cloud-based, multi-language online IDE and code execution platform similar to Replit or HackerRank, with strong sandboxing, per-user workspaces, multi-file project management, Git/GitHub integration, and Docker-based secure execution.
+
+Core Functional Requirements
+1. User Workspace & File System Architecture
+
+Design a per-user isolated workspace file system with the following structure:
+
+/workspaces
+ └── /{user_id}
+      └── /projects
+           └── /{project_id}
+                ├── src/
+                ├── .git/ (optional)
+                ├── config.json
+                └── README.md
+
+Requirements:
+
+Each user must have a fully isolated workspace
+
+Users can create, rename, delete, and open projects
+
+Each project supports multi-file and nested folders
+
+Workspace paths must never overlap between users
+
+Prevent directory traversal and symlink abuse
+
+2. ZIP Import & Export
+Import:
+
+Allow users to upload a ZIP file from their local system
+
+Extract ZIP contents safely into a selected project directory
+
+Enforce:
+
+Max ZIP size (e.g., 100 MB)
+
+Max extracted size
+
+Block malicious paths (../, symlinks)
+
+Preserve folder structure
+
+Export:
+
+Allow exporting:
+
+Entire project
+
+Selected folders/files
+
+Generate ZIP dynamically
+
+Stream ZIP to client efficiently
+
+3. Code Editor (VS Code–Like UI)
+
+Frontend must include:
+
+Monaco Editor (VS Code engine)
+
+Syntax highlighting for:
+
+C, C++, Java, Python, JavaScript, Go, Rust, PHP, Ruby, Bash
+
+File tree explorer
+
+Multiple open tabs
+
+Output console
+
+Run / Stop buttons
+
+Language selector
+
+Use React.js with a clean IDE-style layout.
+
+4. Language Support (Minimum 8–10)
+
+Implement execution support for:
+
+C (gcc)
+
+C++ (g++)
+
+Java (OpenJDK)
+
+Python
+
+JavaScript (Node.js)
+
+Go
+
+Rust
+
+PHP
+
+Ruby
+
+Bash
+
+Each language must run inside its own Docker container.
+
+5. Secure Code Execution Engine
+
+Backend implemented in Node.js.
+
+Execution workflow:
+
+Receive execution request
+
+Create a short-lived Docker container
+
+Mount project directory as read-only or controlled RW
+
+Compile/execute code
+
+Stream output in real time
+
+Enforce:
+
+CPU limits
+
+Memory limits
+
+Execution timeout
+
+No network access
+
+Destroy container after execution
+
+Use:
+
+Docker API / CLI
+
+Seccomp profiles
+
+AppArmor
+
+No privileged containers
+
+6. Real-Time Output Streaming
+
+Use WebSockets
+
+Stream:
+
+Compilation output
+
+Runtime stdout/stderr
+
+Status (Running / Completed / Timeout / Error)
+
+7. Git & GitHub Integration
+
+Provide Git functionality inside the workspace:
+
+Supported operations:
+
+git init
+
+git clone
+
+git status
+
+git add
+
+git commit
+
+git pull
+
+git push
+
+Requirements:
+
+GitHub OAuth authentication
+
+Tokens stored securely
+
+Commands executed only inside user project directories
+
+Prevent arbitrary shell access
+
+Display Git output in UI console
+
+8. Authentication & Authorization
+
+Use Supabase Authentication
+
+Support:
+
+Email/password login
+
+GitHub OAuth
+
+JWT-based session handling
+
+Role-based access:
+
+User
+
+Admin
+
+9. Database & Metadata
+
+Use Supabase (PostgreSQL) to store:
+
+Users
+
+Project metadata
+
+Execution logs
+
+Git repository links
+
+Usage statistics
+
+Workspace files remain on filesystem, not in DB.
+
+10. Admin & Monitoring
+
+Admin dashboard must allow:
+
+Viewing execution logs
+
+Monitoring active containers
+
+Tracking per-user usage
+
+Detecting abuse (timeouts, excessive executions)
+
+Non-Functional Requirements
+
+Strong isolation between users
+
+Scalable execution model
+
+No host filesystem access from containers
+
+Clean error handling
+
+Production-grade logging
+
+Works on Linux / Docker Desktop / WSL2
+
+Zero-cost local development setup
+
+Deliverables
+
+Frontend (React + Monaco)
+
+Backend (Node.js + Express)
+
+Dockerfiles per language
+
+Secure execution service
+
+Workspace file manager
+
+Git integration layer
+
+Supabase integration
+
+Documentation & setup instructions
+
+Final Instruction
+
+Generate:
+
+System architecture
+
+Folder structure
+
+Database schema
+
+API endpoints
+
+Docker execution logic
+
+File system security logic
+
+Git integration logic
+
+UI component structure
+
+Build CloudCodeX as a secure, scalable, academic-grade cloud IDE.
