@@ -1,6 +1,7 @@
 import path from 'path';
 import fs from 'fs/promises';
 import { config } from '../config/index';
+import { supabaseAdmin } from '../config/supabase';
 
 /**
  * Security utilities for path validation and protection against
@@ -214,5 +215,23 @@ export async function checkStorageQuota(
         usedMb,
         quotaMb
     };
+}
+
+/**
+ * Update user's storage usage in the database
+ * Calculates current storage from filesystem and syncs to profiles table
+ */
+export async function updateUserStorage(userId: string): Promise<number> {
+    const userWorkspace = getUserWorkspacePath(userId);
+    const currentSize = await getDirectorySize(userWorkspace);
+    const usedMb = Math.round(currentSize / (1024 * 1024) * 100) / 100;
+
+    // Update the database
+    await supabaseAdmin
+        .from('profiles')
+        .update({ storage_used_mb: usedMb })
+        .eq('id', userId);
+
+    return usedMb;
 }
 

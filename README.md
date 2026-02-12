@@ -60,7 +60,29 @@ Edit `server/.env` with your Supabase and specific configuration (see `server/.e
 
 Run the contents of `supabase_schema.sql` in your Supabase SQL Editor to set up the necessary tables and security policies.
 
-### 4. Install Dependencies
+### 4. Build Docker Images
+
+**Required for code execution features.**
+
+**Windows:**
+```powershell
+./docker/build-images.ps1
+```
+
+**Mac/Linux:**
+```bash
+docker build -t cloudcodex-c-cpp ./docker/languages/c-cpp
+docker build -t cloudcodex-python ./docker/languages/python
+docker build -t cloudcodex-java ./docker/languages/java
+docker build -t cloudcodex-javascript ./docker/languages/javascript
+docker build -t cloudcodex-go ./docker/languages/go
+docker build -t cloudcodex-rust ./docker/languages/rust
+docker build -t cloudcodex-php ./docker/languages/php
+docker build -t cloudcodex-ruby ./docker/languages/ruby
+docker build -t cloudcodex-bash ./docker/languages/bash
+```
+
+### 5. Install Dependencies
 
 Install all dependencies for both client and server from the root directory:
 
@@ -68,7 +90,7 @@ Install all dependencies for both client and server from the root directory:
 npm run install:all
 ```
 
-### 5. Start Development Servers
+### 6. Start Development Servers
 
 Start both backend and frontend servers with a single command:
 

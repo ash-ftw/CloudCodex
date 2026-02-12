@@ -1,5 +1,7 @@
-# workspaces
+# workspaces (runtime user data)
 workspaces/
+server/workspaces/
+server/workspaces-backup-*/
 
 # Dependencies
 node_modules/
@@ -38,3 +40,11 @@ coverage/
 # Misc
 *.tgz
 *.tar.gz
+
+# SQL, Markdown, CSV files
+*.sql
+*.md
+*.csv
+
+# Agent
+.agent/

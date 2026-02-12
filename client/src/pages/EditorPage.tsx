@@ -8,8 +8,11 @@ import { joinProject, leaveProject, onExecutionOutput, onFileChange, ExecutionOu
 import {
     ChevronLeft, Play, Square, Save, FolderTree, Terminal, Settings,
     ChevronRight, ChevronDown, File, Folder, Plus, X, MoreHorizontal, Keyboard,
-    RefreshCw, Code2, Loader2, FilePlus, FolderPlus
+    RefreshCw, Loader2, FilePlus, FolderPlus, BookOpen, Code2, HardDrive,
+    Zap, Shield, KeyRound
 } from 'lucide-react';
+import { useModal } from '../hooks/useModal';
+import ConfirmModal from '../components/ConfirmModal';
 import '../styles/editor.css';
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -48,6 +51,7 @@ export default function EditorPage() {
     } = useEditorStore();
 
     const [sidebarOpen, setSidebarOpen] = useState(true);
+    const { modalState, showAlert, showConfirm, closeModal } = useModal();
     const [consoleOpen, setConsoleOpen] = useState(true);
     const [consoleOutput, setConsoleOutput] = useState<string[]>([]);
     const [isRunning, setIsRunning] = useState(false);
@@ -58,6 +62,28 @@ export default function EditorPage() {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [createType, setCreateType] = useState<'file' | 'directory'>('file');
     const [createParentPath, setCreateParentPath] = useState<string>('');
+    const [showWelcome, setShowWelcome] = useState(false);
+
+    // Show welcome guidelines on first open of each project (unless globally dismissed)
+    useEffect(() => {
+        if (!projectId) return;
+        const neverShow = localStorage.getItem('editor_guide_never_show');
+        if (neverShow === 'true') return;
+        const seenForProject = localStorage.getItem(`editor_guide_seen_${projectId}`);
+        if (!seenForProject) {
+            setShowWelcome(true);
+        }
+    }, [projectId]);
+
+    const dismissWelcome = (neverShowAgain: boolean) => {
+        if (projectId) {
+            localStorage.setItem(`editor_guide_seen_${projectId}`, 'true');
+        }
+        if (neverShowAgain) {
+            localStorage.setItem('editor_guide_never_show', 'true');
+        }
+        setShowWelcome(false);
+    };
 
     // Use ref to track current execution ID to avoid stale closure issues
     const executionIdRef = useRef<string | null>(null);
@@ -249,7 +275,7 @@ export default function EditorPage() {
             setCreateParentPath('');
         } catch (error) {
             console.error('Failed to create:', error);
-            alert(`Failed to create ${type}: ${(error as Error).message}`);
+            showAlert(`Failed to create ${type}: ${(error as Error).message}`);
         }
     };
 
@@ -270,7 +296,7 @@ export default function EditorPage() {
                         <ChevronLeft size={20} />
                     </button>
                     <div className="project-info">
-                        <Code2 size={18} />
+                        <img src="/favicon.svg" width={18} height={18} alt="CloudCodeX logo" />
                         <span>{currentProject?.name || 'Loading...'}</span>
                     </div>
                 </div>
@@ -360,6 +386,8 @@ export default function EditorPage() {
                                         projectId={projectId!}
                                         onRefresh={refreshFiles}
                                         onCreateInFolder={handleCreateInFolder}
+                                        showAlert={showAlert}
+                                        showConfirm={showConfirm}
                                     />
                                 ))
                             )}
@@ -415,7 +443,7 @@ export default function EditorPage() {
                             />
                         ) : (
                             <div className="no-file-open">
-                                <Code2 size={48} />
+                                <img src="/favicon.svg" width={48} height={48} alt="CloudCodeX logo" style={{ opacity: 0.5 }} />
                                 <p>Select a file to start editing</p>
                             </div>
                         )}
@@ -477,6 +505,138 @@ export default function EditorPage() {
                     onCreate={handleCreateFile}
                 />
             )}
+
+            <ConfirmModal
+                isOpen={modalState.isOpen}
+                title={modalState.title}
+                message={modalState.message}
+                variant={modalState.variant}
+                confirmLabel={modalState.confirmLabel}
+                cancelLabel={modalState.cancelLabel}
+                showCancel={modalState.showCancel}
+                onConfirm={modalState.onConfirm}
+                onCancel={closeModal}
+            />
+
+            {showWelcome && <WelcomeGuidelinesModal onClose={dismissWelcome} />}
+        </div>
+    );
+}
+
+function WelcomeGuidelinesModal({ onClose }: { onClose: (neverShowAgain: boolean) => void }) {
+    const [neverShow, setNeverShow] = useState(false);
+
+    return (
+        <div className="modal-overlay" onClick={() => onClose(neverShow)}>
+            <div className="welcome-modal" onClick={e => e.stopPropagation()}>
+                <div className="welcome-header">
+                    <div className="welcome-icon">
+                        <BookOpen size={28} />
+                    </div>
+                    <h2>Welcome to the Editor</h2>
+                    <p className="welcome-subtitle">Here's everything you need to get started</p>
+                </div>
+
+                <div className="welcome-sections">
+                    {/* Available Languages */}
+                    <div className="welcome-section">
+                        <div className="section-title">
+                            <Code2 size={16} />
+                            <span>Supported Languages</span>
+                        </div>
+                        <div className="language-grid">
+                            {[
+                                { name: 'Python', ext: '.py' },
+                                { name: 'JavaScript', ext: '.js' },
+                                { name: 'TypeScript', ext: '.ts' },
+                                { name: 'Java', ext: '.java' },
+                                { name: 'C', ext: '.c' },
+                                { name: 'C++', ext: '.cpp' },
+                                { name: 'Go', ext: '.go' },
+                                { name: 'Rust', ext: '.rs' },
+                                { name: 'PHP', ext: '.php' },
+                                { name: 'Ruby', ext: '.rb' },
+                                { name: 'Bash', ext: '.sh' },
+                            ].map(lang => (
+                                <div key={lang.ext} className="language-chip">
+                                    <span className="lang-name">{lang.name}</span>
+                                    <span className="lang-ext">{lang.ext}</span>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+
+                    {/* Execution Rules */}
+                    <div className="welcome-section">
+                        <div className="section-title">
+                            <Zap size={16} />
+                            <span>Execution Rules</span>
+                        </div>
+                        <ul className="guide-list">
+                            <li>Files are <strong>auto-saved before execution</strong> — unsaved changes will be saved when you hit Run.</li>
+                            <li>Only one program can run at a time. Stop the current execution before starting another.</li>
+                            <li>Use the <strong>Input (stdin)</strong> panel to provide input before running your program.</li>
+                            <li>Execution runs in an isolated container with resource limits for security.</li>
+                            <li>Long-running programs will be <strong>automatically terminated</strong> after the timeout period.</li>
+                        </ul>
+                    </div>
+
+                    {/* File Saving */}
+                    <div className="welcome-section">
+                        <div className="section-title">
+                            <HardDrive size={16} />
+                            <span>File Management</span>
+                        </div>
+                        <ul className="guide-list">
+                            <li>A <strong>yellow dot (•)</strong> on a tab indicates unsaved changes.</li>
+                            <li>Create files and folders using the buttons in the sidebar header or by right-clicking a folder.</li>
+                            <li>File names must include the correct extension (e.g., <code>main.py</code>, <code>app.js</code>) for syntax highlighting and execution.</li>
+                            <li>Deleting a file is permanent — there is no recycle bin.</li>
+                        </ul>
+                    </div>
+
+                    {/* Keyboard Shortcuts */}
+                    <div className="welcome-section">
+                        <div className="section-title">
+                            <KeyRound size={16} />
+                            <span>Keyboard Shortcuts</span>
+                        </div>
+                        <div className="shortcuts-grid">
+                            <div className="shortcut-row">
+                                <kbd>Ctrl</kbd> + <kbd>S</kbd>
+                                <span>Save current file</span>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Safety */}
+                    <div className="welcome-section">
+                        <div className="section-title">
+                            <Shield size={16} />
+                            <span>Safety & Limits</span>
+                        </div>
+                        <ul className="guide-list">
+                            <li>Code executes in a sandboxed environment — your system is never at risk.</li>
+                            <li>Network access from executed code is restricted.</li>
+                            <li>Memory and CPU usage are capped per execution.</li>
+                        </ul>
+                    </div>
+                </div>
+
+                <div className="welcome-footer">
+                    <label className="never-show-label">
+                        <input
+                            type="checkbox"
+                            checked={neverShow}
+                            onChange={(e) => setNeverShow(e.target.checked)}
+                        />
+                        <span>Don't show this again for new projects</span>
+                    </label>
+                    <button className="btn btn-primary welcome-btn" onClick={() => onClose(neverShow)}>
+                        Got it, let's code!
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -538,7 +698,9 @@ function FileTreeNode({
     activeFile,
     projectId,
     onRefresh,
-    onCreateInFolder
+    onCreateInFolder,
+    showAlert,
+    showConfirm
 }: {
     node: FileNode;
     depth: number;
@@ -547,6 +709,8 @@ function FileTreeNode({
     projectId: string;
     onRefresh: () => void;
     onCreateInFolder: (folderPath: string, type: 'file' | 'directory') => void;
+    showAlert: (message: string, variant?: any, title?: string) => void;
+    showConfirm: (options: { title: string; message: string; confirmLabel?: string; variant?: any }) => Promise<boolean>;
 }) {
     const { toggleDirectory, setDirectoryChildren } = useEditorStore();
     const [showMenu, setShowMenu] = useState(false);
@@ -582,12 +746,17 @@ function FileTreeNode({
     };
 
     const handleDelete = async () => {
-        if (!confirm(`Delete ${node.name}?`)) return;
+        const confirmed = await showConfirm({
+            title: 'Delete File',
+            message: `Are you sure you want to delete "${node.name}"?`,
+            confirmLabel: 'Delete',
+        });
+        if (!confirmed) return;
         try {
             await filesApi.delete(projectId, node.path);
             onRefresh();
         } catch (error) {
-            alert(`Failed to delete: ${(error as Error).message}`);
+            showAlert(`Failed to delete: ${(error as Error).message}`);
         }
         setShowMenu(false);
     };
@@ -648,6 +817,8 @@ function FileTreeNode({
                     projectId={projectId}
                     onRefresh={onRefresh}
                     onCreateInFolder={onCreateInFolder}
+                    showAlert={showAlert}
+                    showConfirm={showConfirm}
                 />
             ))}
         </>

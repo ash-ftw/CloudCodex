@@ -1,0 +1,7 @@
+{
+    "scripts": {
+        "migrate:dry-run": "ts-node src/scripts/migrate_to_cloud.ts --dry-run",
+        "migrate:backup": "ts-node src/scripts/migrate_to_cloud.ts --backup",
+        "migrate:full": "ts-node src/scripts/migrate_to_cloud.ts --backup"
+    }
+}

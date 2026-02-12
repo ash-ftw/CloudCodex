@@ -1,14 +1,12 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import fs from 'fs/promises';
-import path from 'path';
-import archiver from 'archiver';
-import unzipper from 'unzipper';
 import multer from 'multer';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
 import { AppError } from '../middleware/errorHandler';
-import { getProjectPath, resolveProjectPath, checkStorageQuota, sanitizePath, containsTraversal } from '../utils/pathSecurity';
+import { checkStorageQuota } from '../utils/pathSecurity';
 import { config } from '../config/index';
+import { supabaseAdmin } from '../config/supabase';
+import * as storageService from '../services/storageService';
 
 const router = Router();
 
@@ -34,72 +32,53 @@ const exportSelectionSchema = z.object({
 
 /**
  * POST /api/zip/:projectId/import
- * Import a ZIP file into a project
+ * Import a ZIP file into a project (upload to cloud storage)
  */
 router.post('/:projectId/import', upload.single('file'), async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { projectId } = req.params;
-        const targetPath = (req.query.path as string) || '';
+        const userId = req.user!.id;
 
         if (!req.file) {
             throw new AppError('No file uploaded', 400, 'NO_FILE');
         }
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, targetPath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[ZIP Import] Uploading ${req.file.size} bytes to project ${projectId}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Check storage quota
-        const quota = await checkStorageQuota(req.user!.id, req.file.size * 3); // Estimate extracted size
+        // Check storage quota (estimate extracted size)
+        const quota = await checkStorageQuota(userId, req.file.size * 3);
         if (!quota.withinQuota) {
             throw new AppError('Storage quota exceeded', 400, 'QUOTA_EXCEEDED');
         }
 
-        // Create a read stream from the buffer
-        const bufferStream = require('stream').Readable.from(req.file.buffer);
-        let extractedCount = 0;
+        // Upload ZIP to cloud storage and extract
+        await storageService.uploadProjectZip(userId, projectId, req.file.buffer);
 
-        await new Promise<void>((resolve, reject) => {
-            bufferStream
-                .pipe(unzipper.Parse())
-                .on('entry', async (entry: unzipper.Entry) => {
-                    const entryPath = entry.path;
+        // Update storage usage in database
+        const storageUsage = await storageService.getStorageUsage(userId);
+        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
 
-                    // Security checks
-                    if (containsTraversal(entryPath)) {
-                        entry.autodrain();
-                        return;
-                    }
-
-                    const sanitized = sanitizePath(entryPath);
-                    const fullPath = path.join(resolvedPath, sanitized);
-
-                    // Ensure path stays within project
-                    const projectPath = getProjectPath(req.user!.id, projectId);
-                    if (!fullPath.startsWith(projectPath)) {
-                        entry.autodrain();
-                        return;
-                    }
-
-                    if (entry.type === 'Directory') {
-                        await fs.mkdir(fullPath, { recursive: true });
-                        entry.autodrain();
-                    } else {
-                        await fs.mkdir(path.dirname(fullPath), { recursive: true });
-                        entry.pipe(require('fs').createWriteStream(fullPath));
-                        extractedCount++;
-                    }
-                })
-                .on('finish', resolve)
-                .on('error', reject);
-        });
+        await supabaseAdmin
+            .from('profiles')
+            .update({ storage_used_mb: usageMb })
+            .eq('id', userId);
 
         res.json({
             success: true,
             data: {
-                message: `Extracted ${extractedCount} files`,
-                extractedCount
+                message: `ZIP file imported successfully`
             }
         });
     } catch (error) {
@@ -109,41 +88,39 @@ router.post('/:projectId/import', upload.single('file'), async (req: Authenticat
 
 /**
  * GET /api/zip/:projectId/export
- * Export entire project as ZIP
+ * Export entire project as ZIP (download from cloud storage)
  */
 router.get('/:projectId/export', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { projectId } = req.params;
-        const includeGit = req.query.includeGit === 'true';
-        const projectName = (req.query.name as string) || projectId;
+        const userId = req.user!.id;
 
-        const projectPath = getProjectPath(req.user!.id, projectId);
+        console.log(`[ZIP Export] Creating ZIP for project ${projectId}`);
 
-        // Sanitize filename - remove any unsafe characters
-        const safeName = projectName.replace(/[^a-zA-Z0-9_-]/g, '_');
+        // Verify user owns this  project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('name')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
+        }
+
+        // Download project as ZIP from cloud storage
+        const zipBuffer = await storageService.downloadProjectZip(userId, projectId);
+
+        // Sanitize filename
+        const safeName = (project.name || projectId).replace(/[^a-zA-Z0-9_-]/g, '_');
 
         // Set headers for download
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', `attachment; filename="${safeName}.zip"`);
+        res.setHeader('Content-Length', zipBuffer.length.toString());
 
-        const archive = archiver('zip', { zlib: { level: 9 } });
-
-        archive.on('error', (err) => {
-            throw err;
-        });
-
-        archive.pipe(res);
-
-        // Add files to archive
-        archive.directory(projectPath, false, (entry) => {
-            // Skip .git directory unless explicitly included
-            if (!includeGit && entry.name.startsWith('.git')) {
-                return false;
-            }
-            return entry;
-        });
-
-        await archive.finalize();
+        res.send(zipBuffer);
     } catch (error) {
         next(error);
     }
@@ -152,51 +129,42 @@ router.get('/:projectId/export', async (req: AuthenticatedRequest, res: Response
 /**
  * POST /api/zip/:projectId/export
  * Export selected files/folders as ZIP
+ * Note: For cloud storage, we'll export the entire project for now
+ * TODO: Implement selective file export if needed
  */
 router.post('/:projectId/export', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { projectId } = req.params;
         const { paths } = exportSelectionSchema.parse(req.body);
+        const userId = req.user!.id;
 
-        const projectPath = getProjectPath(req.user!.id, projectId);
+        console.log(`[ZIP Export] Creating selective ZIP for project ${projectId}, paths:`, paths);
 
-        // Validate all paths
-        for (const p of paths) {
-            const resolved = resolveProjectPath(req.user!.id, projectId, p);
-            if (!resolved) {
-                throw new AppError(`Invalid path: ${p}`, 400, 'INVALID_PATH');
-            }
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('name')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
+
+        // For now, export entire project
+        // TODO: Implement selective file export from cloud storage
+        const zipBuffer = await storageService.downloadProjectZip(userId, projectId);
 
         // Set headers for download
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', `attachment; filename="${projectId}-selection.zip"`);
+        res.setHeader('Content-Length', zipBuffer.length.toString());
 
-        const archive = archiver('zip', { zlib: { level: 9 } });
-
-        archive.on('error', (err) => {
-            throw err;
-        });
-
-        archive.pipe(res);
-
-        // Add selected paths to archive
-        for (const p of paths) {
-            const fullPath = path.join(projectPath, sanitizePath(p));
-            const stats = await fs.stat(fullPath);
-
-            if (stats.isDirectory()) {
-                archive.directory(fullPath, path.basename(p));
-            } else {
-                archive.file(fullPath, { name: path.basename(p) });
-            }
-        }
-
-        await archive.finalize();
+        res.send(zipBuffer);
     } catch (error) {
         next(error);
     }
 });
 
 export { router as zipRoutes };
-

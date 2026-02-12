@@ -77,7 +77,7 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     },
 
     openFile: (file) => {
-        const { openFiles, activeFile } = get();
+        const { openFiles } = get();
         const exists = openFiles.find(f => f.path === file.path);
 
         if (!exists) {

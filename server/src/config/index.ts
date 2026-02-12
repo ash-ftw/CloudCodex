@@ -109,6 +109,11 @@ export const config = {
         clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
         callbackUrl: process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback'
     },
+    google: {
+        clientId: process.env.GOOGLE_CLIENT_ID || '',
+        clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+        callbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback'
+    },
     docker: {
         socket: process.env.DOCKER_SOCKET || (process.platform === 'win32' ? '//./pipe/docker_engine' : '/var/run/docker.sock'),
         executionTimeout: parseInt(process.env.DOCKER_EXECUTION_TIMEOUT || '30000', 10),

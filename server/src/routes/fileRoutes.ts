@@ -1,17 +1,12 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import fs from 'fs/promises';
-import path from 'path';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
 import { AppError } from '../middleware/errorHandler';
-import {
-    resolveProjectPath,
-    getProjectPath,
-    isSymlink,
-    checkStorageQuota
-} from '../utils/pathSecurity';
 import { FileNode } from '../types/index';
 import { emitFileChange } from '../services/socketService';
+import * as storageService from '../services/storageService';
+import { checkStorageQuota } from '../utils/pathSecurity';
+import { supabaseAdmin } from '../config/supabase';
 
 const router = Router();
 
@@ -32,59 +27,88 @@ const renameSchema = z.object({
 
 /**
  * GET /api/files/:projectId
- * List files in a project
+ * List files in a project directory
  */
 router.get('/:projectId', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { projectId } = req.params;
         const relativePath = (req.query.path as string) || '';
+        const userId = req.user!.id;
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, relativePath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[Files] List request: projectId=${projectId}, path=${relativePath}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        const files = await listDirectory(resolvedPath, getProjectPath(req.user!.id, projectId));
+        // List files from cloud storage
+        const files = await storageService.listFiles(userId, projectId, relativePath);
 
-        res.json({ success: true, data: files });
+        const fileNodes: FileNode[] = files.map(file => ({
+            name: file.name,
+            path: file.path,
+            type: file.isDirectory ? 'directory' : 'file',
+            size: file.size,
+            modifiedAt: file.updatedAt
+        }));
+
+        // Sort: directories first, then alphabetically
+        fileNodes.sort((a, b) => {
+            if (a.type !== b.type) {
+                return a.type === 'directory' ? -1 : 1;
+            }
+            return a.name.localeCompare(b.name);
+        });
+
+        res.json({ success: true, data: fileNodes });
     } catch (error) {
         next(error);
     }
 });
 
 /**
- * GET /api/files/:projectId/*
+ * GET /api/files/:projectId/content/*
  * Read file content
  */
 router.get('/:projectId/content/*', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { projectId } = req.params;
         const relativePath = decodeURIComponent(req.params[0] || '');
+        const userId = req.user!.id;
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, relativePath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[Files] Read file: ${relativePath}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Check if it's a symlink
-        if (await isSymlink(resolvedPath)) {
-            throw new AppError('Cannot read symlinks', 400, 'SYMLINK_NOT_ALLOWED');
-        }
-
-        const stats = await fs.stat(resolvedPath);
-        if (stats.isDirectory()) {
-            throw new AppError('Cannot read directory as file', 400, 'IS_DIRECTORY');
-        }
-
-        const content = await fs.readFile(resolvedPath, 'utf-8');
+        // Download file from cloud storage
+        const buffer = await storageService.downloadFile(userId, projectId, relativePath);
+        const content = buffer.toString('utf-8');
 
         res.json({
             success: true,
             data: {
                 path: relativePath,
                 content,
-                size: stats.size,
-                modifiedAt: stats.mtime
+                size: buffer.length,
+                modifiedAt: new Date()
             }
         });
     } catch (error) {
@@ -93,7 +117,7 @@ router.get('/:projectId/content/*', async (req: AuthenticatedRequest, res: Respo
 });
 
 /**
- * POST /api/files/:projectId/*
+ * POST /api/files/:projectId/create/*
  * Create file or directory
  */
 router.post('/:projectId/create/*', async (req: AuthenticatedRequest, res: Response, next) => {
@@ -101,25 +125,48 @@ router.post('/:projectId/create/*', async (req: AuthenticatedRequest, res: Respo
         const { projectId } = req.params;
         const relativePath = decodeURIComponent(req.params[0] || '');
         const { type, content = '' } = createFileSchema.parse(req.body);
+        const userId = req.user!.id;
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, relativePath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[Files] Create ${type}: ${relativePath}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
         // Check storage quota
-        const quota = await checkStorageQuota(req.user!.id, content.length);
+        const quota = await checkStorageQuota(userId, content.length);
         if (!quota.withinQuota) {
             throw new AppError('Storage quota exceeded', 400, 'QUOTA_EXCEEDED');
         }
 
         if (type === 'directory') {
-            await fs.mkdir(resolvedPath, { recursive: true });
+            // For directories, create a .gitkeep file to represent the directory
+            const gitkeepPath = relativePath.endsWith('/')
+                ? `${relativePath}.gitkeep`
+                : `${relativePath}/.gitkeep`;
+            await storageService.uploadFile(userId, projectId, gitkeepPath, Buffer.from(''));
         } else {
-            // Ensure parent directory exists
-            await fs.mkdir(path.dirname(resolvedPath), { recursive: true });
-            await fs.writeFile(resolvedPath, content);
+            // Upload file to cloud storage
+            const buffer = Buffer.from(content, 'utf-8');
+            await storageService.uploadFile(userId, projectId, relativePath, buffer);
         }
+
+        // Update storage usage in database
+        const storageUsage = await storageService.getStorageUsage(userId);
+        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+
+        await supabaseAdmin
+            .from('profiles')
+            .update({ storage_used_mb: usageMb })
+            .eq('id', userId);
 
         // Emit file change event
         const io = req.app.get('io');
@@ -135,7 +182,7 @@ router.post('/:projectId/create/*', async (req: AuthenticatedRequest, res: Respo
 });
 
 /**
- * PUT /api/files/:projectId/*
+ * PUT /api/files/:projectId/content/*
  * Update file content
  */
 router.put('/:projectId/content/*', async (req: AuthenticatedRequest, res: Response, next) => {
@@ -143,19 +190,40 @@ router.put('/:projectId/content/*', async (req: AuthenticatedRequest, res: Respo
         const { projectId } = req.params;
         const relativePath = decodeURIComponent(req.params[0] || '');
         const { content } = updateFileSchema.parse(req.body);
+        const userId = req.user!.id;
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, relativePath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[Files] Update file: ${relativePath}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
         // Check storage quota
-        const quota = await checkStorageQuota(req.user!.id, content.length);
+        const quota = await checkStorageQuota(userId, content.length);
         if (!quota.withinQuota) {
             throw new AppError('Storage quota exceeded', 400, 'QUOTA_EXCEEDED');
         }
 
-        await fs.writeFile(resolvedPath, content);
+        // Upload file to cloud storage (upsert mode)
+        const buffer = Buffer.from(content, 'utf-8');
+        await storageService.uploadFile(userId, projectId, relativePath, buffer);
+
+        // Update storage usage in database
+        const storageUsage = await storageService.getStorageUsage(userId);
+        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+
+        await supabaseAdmin
+            .from('profiles')
+            .update({ storage_used_mb: usageMb })
+            .eq('id', userId);
 
         // Emit file change event
         const io = req.app.get('io');
@@ -179,22 +247,29 @@ router.patch('/:projectId/rename/*', async (req: AuthenticatedRequest, res: Resp
         const { projectId } = req.params;
         const relativePath = decodeURIComponent(req.params[0] || '');
         const { newName } = renameSchema.parse(req.body);
+        const userId = req.user!.id;
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, relativePath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[Files] Rename: ${relativePath} → ${newName}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        const newPath = path.join(path.dirname(resolvedPath), newName);
-        const newRelativePath = path.join(path.dirname(relativePath), newName);
+        // Calculate new path
+        const pathParts = relativePath.split('/');
+        pathParts[pathParts.length - 1] = newName;
+        const newRelativePath = pathParts.join('/');
 
-        // Verify new path is still within project
-        const projectPath = getProjectPath(req.user!.id, projectId);
-        if (!newPath.startsWith(projectPath)) {
-            throw new AppError('Invalid new path', 400, 'INVALID_PATH');
-        }
-
-        await fs.rename(resolvedPath, newPath);
+        // Move file in cloud storage
+        await storageService.moveFile(userId, projectId, relativePath, newRelativePath);
 
         // Emit file change events
         const io = req.app.get('io');
@@ -218,24 +293,46 @@ router.delete('/:projectId/*', async (req: AuthenticatedRequest, res: Response, 
     try {
         const { projectId } = req.params;
         const relativePath = decodeURIComponent(req.params[0] || '');
+        const userId = req.user!.id;
 
-        const resolvedPath = resolveProjectPath(req.user!.id, projectId, relativePath);
-        if (!resolvedPath) {
-            throw new AppError('Invalid path', 400, 'INVALID_PATH');
+        console.log(`[Files] Delete: ${relativePath}`);
+
+        // Verify user owns this project
+        const { data: project } = await supabaseAdmin
+            .from('projects')
+            .select('id')
+            .eq('id', projectId)
+            .eq('user_id', userId)
+            .single();
+
+        if (!project) {
+            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
         // Prevent deleting project root
-        const projectPath = getProjectPath(req.user!.id, projectId);
-        if (resolvedPath === projectPath) {
+        if (!relativePath || relativePath === '' || relativePath === '/') {
             throw new AppError('Cannot delete project root', 400, 'CANNOT_DELETE_ROOT');
         }
 
-        const stats = await fs.stat(resolvedPath);
-        if (stats.isDirectory()) {
-            await fs.rm(resolvedPath, { recursive: true });
+        // Check if it's a directory by looking for files with this prefix
+        const files = await storageService.listFiles(userId, projectId, relativePath);
+
+        if (files.length > 0) {
+            // It's a directory, delete recursively
+            await storageService.deleteDirectory(userId, projectId, relativePath);
         } else {
-            await fs.unlink(resolvedPath);
+            // It's a file, delete it
+            await storageService.deleteFile(userId, projectId, relativePath);
         }
+
+        // Update storage usage in database
+        const storageUsage = await storageService.getStorageUsage(userId);
+        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+
+        await supabaseAdmin
+            .from('profiles')
+            .update({ storage_used_mb: usageMb })
+            .eq('id', userId);
 
         // Emit file change event
         const io = req.app.get('io');
@@ -247,40 +344,4 @@ router.delete('/:projectId/*', async (req: AuthenticatedRequest, res: Response, 
     }
 });
 
-// Helper function to list directory contents
-async function listDirectory(dirPath: string, basePath: string): Promise<FileNode[]> {
-    const entries = await fs.readdir(dirPath, { withFileTypes: true });
-    const files: FileNode[] = [];
-
-    for (const entry of entries) {
-        if (entry.isSymbolicLink()) continue; // Skip symlinks
-
-        const fullPath = path.join(dirPath, entry.name);
-        const relativePath = path.relative(basePath, fullPath);
-        const stats = await fs.stat(fullPath);
-
-        const node: FileNode = {
-            name: entry.name,
-            path: relativePath.replace(/\\/g, '/'),
-            type: entry.isDirectory() ? 'directory' : 'file',
-            modifiedAt: stats.mtime
-        };
-
-        if (entry.isFile()) {
-            node.size = stats.size;
-        }
-
-        files.push(node);
-    }
-
-    // Sort: directories first, then alphabetically
-    return files.sort((a, b) => {
-        if (a.type !== b.type) {
-            return a.type === 'directory' ? -1 : 1;
-        }
-        return a.name.localeCompare(b.name);
-    });
-}
-
 export { router as fileRoutes };
-

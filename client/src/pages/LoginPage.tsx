@@ -1,12 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
-import { Code2, Github, Mail, Lock, User, ArrowRight, Sparkles } from 'lucide-react';
+import { Github, Mail, Lock, User, ArrowRight, Rocket, Shield, Zap } from 'lucide-react';
 import '../styles/login.css';
 
 export default function LoginPage() {
     const navigate = useNavigate();
-    const { login, register, loginWithGitHub, isLoading } = useAuthStore();
+    const { login, register, loginWithGitHub, loginWithGoogle, isLoading } = useAuthStore();
 
     const [isRegister, setIsRegister] = useState(false);
     const [email, setEmail] = useState('');
@@ -43,8 +43,7 @@ export default function LoginPage() {
                 {/* Logo and Title */}
                 <div className="login-header">
                     <div className="logo">
-                        <Code2 size={48} />
-                        <Sparkles className="sparkle" size={20} />
+                        <img src="/favicon.svg" width={64} height={64} alt="CloudCodeX logo" />
                     </div>
                     <h1>CloudCodeX</h1>
                     <p>Cloud-based IDE for Modern Development</p>
@@ -111,14 +110,24 @@ export default function LoginPage() {
                         <span>or continue with</span>
                     </div>
 
-                    <button
-                        type="button"
-                        className="btn btn-secondary w-full"
-                        onClick={loginWithGitHub}
-                    >
-                        <Github size={18} />
-                        GitHub
-                    </button>
+                    <div className="oauth-buttons">
+                        <button
+                            type="button"
+                            className="btn btn-secondary oauth-btn"
+                            onClick={loginWithGoogle}
+                        >
+                            <Mail size={18} />
+                            Google
+                        </button>
+                        <button
+                            type="button"
+                            className="btn btn-secondary oauth-btn"
+                            onClick={loginWithGitHub}
+                        >
+                            <Github size={18} />
+                            GitHub
+                        </button>
+                    </div>
 
                     <p className="switch-mode">
                         {isRegister ? 'Already have an account?' : "Don't have an account?"}
@@ -131,15 +140,15 @@ export default function LoginPage() {
                 {/* Features */}
                 <div className="features">
                     <div className="feature">
-                        <div className="feature-icon">🚀</div>
+                        <div className="feature-icon"><Rocket size={22} /></div>
                         <span>10+ Languages</span>
                     </div>
                     <div className="feature">
-                        <div className="feature-icon">🔒</div>
+                        <div className="feature-icon"><Shield size={22} /></div>
                         <span>Secure Execution</span>
                     </div>
                     <div className="feature">
-                        <div className="feature-icon">⚡</div>
+                        <div className="feature-icon"><Zap size={22} /></div>
                         <span>Real-time Output</span>
                     </div>
                 </div>

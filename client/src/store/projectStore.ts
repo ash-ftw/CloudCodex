@@ -5,7 +5,7 @@ export interface Project {
     name: string;
     description?: string;
     language?: string;
-    githubUrl?: string;
+    github_url?: string;
     createdAt: string;
     updatedAt: string;
 }

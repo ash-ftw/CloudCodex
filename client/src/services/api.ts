@@ -28,13 +28,31 @@ async function apiRequest<T>(endpoint: string, options: ApiOptions = {}): Promis
 
     // Handle non-OK responses
     if (!response.ok) {
+        // Auto-logout on invalid/expired token
+        if (response.status === 401) {
+            const authStore = useAuthStore.getState();
+            if (authStore.isAuthenticated) {
+                console.warn('Session expired or token invalid — clearing auth state');
+                localStorage.removeItem('auth-storage');
+                // Clear state directly instead of calling logout() which makes another API call
+                useAuthStore.setState({
+                    user: null,
+                    token: null,
+                    isAuthenticated: false,
+                    sessionChecked: true
+                });
+            }
+        }
+
         // Try to parse error as JSON, fallback to status text
+        let errorMessage = `Request failed: ${response.status} ${response.statusText}`;
         try {
             const errorData = await response.json();
-            throw new Error(errorData.error?.message || `Request failed: ${response.status}`);
+            errorMessage = errorData.error?.message || errorMessage;
         } catch {
-            throw new Error(`Request failed: ${response.status} ${response.statusText}`);
+            // JSON parse failed, use default message
         }
+        throw new Error(errorMessage);
     }
 
     // Parse successful response
@@ -134,7 +152,27 @@ export const gitApi = {
         apiRequest<any>(`/git/${projectId}/pull`, { method: 'POST' }),
 
     push: (projectId: string) =>
-        apiRequest<any>(`/git/${projectId}/push`, { method: 'POST' })
+        apiRequest<any>(`/git/${projectId}/push`, { method: 'POST' }),
+
+    validatePush: (projectId: string) =>
+        apiRequest<{
+            gitInitialized: boolean;
+            githubAuthenticated: boolean;
+            remoteConfigured: boolean;
+            hasCommits: boolean;
+            hasUncommittedChanges: boolean;
+            canPush: boolean;
+            remote?: { name: string; url: string };
+        }>(`/git/${projectId}/validate`),
+
+    checkRepo: (projectId: string) =>
+        apiRequest<{ isRepo: boolean }>(`/git/${projectId}/check-repo`),
+
+    addRemote: (projectId: string, url: string, branch?: string) =>
+        apiRequest<any>(`/git/${projectId}/remote`, { method: 'POST', body: { url, branch } }),
+
+    listRemotes: (projectId: string) =>
+        apiRequest<Array<{ name: string; url: string }>>(`/git/${projectId}/remote`)
 };
 
 // ZIP API
@@ -189,18 +227,121 @@ export const zipApi = {
 
 // Admin API
 export const adminApi = {
-    logs: (page = 1, limit = 50) =>
-        apiRequest<any>(`/admin/logs?page=${page}&limit=${limit}`),
-
-    containers: () =>
-        apiRequest<any[]>('/admin/containers'),
-
-    users: (page = 1, limit = 50) =>
-        apiRequest<any>(`/admin/users?page=${page}&limit=${limit}`),
+    // Dashboard
+    dashboard: () =>
+        apiRequest<any>('/admin/dashboard'),
 
     usage: () =>
         apiRequest<any>('/admin/usage'),
 
+    // Users
+    users: (page = 1, limit = 50, search?: string, status?: string, role?: string) => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (search) params.set('search', search);
+        if (status) params.set('status', status);
+        if (role) params.set('role', role);
+        return apiRequest<any>(`/admin/users?${params}`);
+    },
+
+    userDetail: (userId: string) =>
+        apiRequest<any>(`/admin/users/${userId}`),
+
+    blockUser: (userId: string, reason?: string) =>
+        apiRequest<any>(`/admin/users/${userId}/block`, { method: 'PUT', body: { reason } }),
+
+    unblockUser: (userId: string) =>
+        apiRequest<any>(`/admin/users/${userId}/unblock`, { method: 'PUT' }),
+
     updateRole: (userId: string, role: 'user' | 'admin') =>
-        apiRequest<any>(`/admin/users/${userId}/role`, { method: 'POST', body: { role } })
+        apiRequest<any>(`/admin/users/${userId}/role`, { method: 'PUT', body: { role } }),
+
+    deleteUser: (userId: string) =>
+        apiRequest<any>(`/admin/users/${userId}`, { method: 'DELETE' }),
+
+    // Projects
+    projects: (page = 1, limit = 50, search?: string) => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (search) params.set('search', search);
+        return apiRequest<any>(`/admin/projects?${params}`);
+    },
+
+    projectDetail: (projectId: string) =>
+        apiRequest<any>(`/admin/projects/${projectId}`),
+
+    deleteProject: (projectId: string) =>
+        apiRequest<any>(`/admin/projects/${projectId}`, { method: 'DELETE' }),
+
+    downloadProject: (projectId: string) => {
+        const token = useAuthStore.getState().token;
+        window.open(`/api/admin/projects/${projectId}/download?token=${token}`, '_blank');
+    },
+
+    // Executions
+    activeExecutions: () =>
+        apiRequest<any[]>('/admin/executions/active'),
+
+    killExecution: (containerId: string) =>
+        apiRequest<any>(`/admin/executions/${containerId}/kill`, { method: 'POST' }),
+
+    executionLogs: (containerId: string) =>
+        apiRequest<any>(`/admin/executions/${containerId}/logs`),
+
+    // Containers
+    containers: (all = false) =>
+        apiRequest<any[]>(`/admin/containers?all=${all}`),
+
+    stopContainer: (containerId: string) =>
+        apiRequest<any>(`/admin/containers/${containerId}/stop`, { method: 'POST' }),
+
+    restartContainer: (containerId: string) =>
+        apiRequest<any>(`/admin/containers/${containerId}/restart`, { method: 'POST' }),
+
+    pauseContainer: (containerId: string) =>
+        apiRequest<any>(`/admin/containers/${containerId}/pause`, { method: 'POST' }),
+
+    unpauseContainer: (containerId: string) =>
+        apiRequest<any>(`/admin/containers/${containerId}/unpause`, { method: 'POST' }),
+
+    removeContainer: (containerId: string) =>
+        apiRequest<any>(`/admin/containers/${containerId}`, { method: 'DELETE' }),
+
+    cleanupContainers: (maxAgeHours = 24) =>
+        apiRequest<any>('/admin/containers/cleanup', { method: 'POST', body: { maxAgeHours } }),
+
+    // Logs
+    logs: (page = 1, limit = 50, filters?: { userId?: string; status?: string; language?: string }) => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (filters?.userId) params.set('userId', filters.userId);
+        if (filters?.status) params.set('status', filters.status);
+        if (filters?.language) params.set('language', filters.language);
+        return apiRequest<any>(`/admin/logs?${params}`);
+    },
+
+    auditLogs: (page = 1, limit = 50, filters?: { action?: string; severity?: string; targetType?: string }) => {
+        const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+        if (filters?.action) params.set('action', filters.action);
+        if (filters?.severity) params.set('severity', filters.severity);
+        if (filters?.targetType) params.set('targetType', filters.targetType);
+        return apiRequest<any>(`/admin/audit-logs?${params}`);
+    },
+
+    // Analytics
+    analytics: (days = 7) =>
+        apiRequest<any>(`/admin/analytics?days=${days}`),
+
+    exportAnalytics: (days = 30) => {
+        const token = useAuthStore.getState().token;
+        window.open(`/api/admin/analytics/export?days=${days}&token=${token}`, '_blank');
+    },
+
+    // Settings
+    settings: () =>
+        apiRequest<any[]>('/admin/settings'),
+
+    updateSettings: (settings: Record<string, string>) =>
+        apiRequest<any>('/admin/settings', { method: 'PUT', body: { settings } }),
+
+    // Alerts
+    alerts: () =>
+        apiRequest<any[]>('/admin/alerts')
 };

@@ -12,7 +12,8 @@ $images = @(
     @{ name = "cloudcodex-rust"; path = "./languages/rust" },
     @{ name = "cloudcodex-php"; path = "./languages/php" },
     @{ name = "cloudcodex-ruby"; path = "./languages/ruby" },
-    @{ name = "cloudcodex-bash"; path = "./languages/bash" }
+    @{ name = "cloudcodex-bash"; path = "./languages/bash" },
+    @{ name = "cloudcodex-git-worker"; path = "./languages/git-worker" }
 )
 
 $failed = @()

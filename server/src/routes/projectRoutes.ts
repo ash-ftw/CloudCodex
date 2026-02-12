@@ -1,12 +1,11 @@
 import { Router, Response } from 'express';
 import { z } from 'zod';
-import fs from 'fs/promises';
 import { v4 as uuidv4 } from 'uuid';
 import { supabaseAdmin } from '../config/supabase';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
 import { AppError } from '../middleware/errorHandler';
-import { getProjectPath, getUserWorkspacePath } from '../utils/pathSecurity';
 import { Project } from '../types/index';
+import * as storageService from '../services/storageService';
 
 const router = Router();
 
@@ -46,6 +45,7 @@ router.get('/', async (req: AuthenticatedRequest, res: Response, next) => {
             success: true,
             data: projects.map((p: Record<string, unknown>) => ({
                 id: p.id,
+                userId: p.user_id,
                 name: p.name,
                 description: p.description,
                 language: p.language,
@@ -85,15 +85,8 @@ router.post('/', async (req: AuthenticatedRequest, res: Response, next) => {
             throw new AppError('Failed to create project', 500, 'DB_ERROR');
         }
 
-        // Create project directory with minimal structure
-        const projectPath = getProjectPath(req.user!.id, projectId);
-        await fs.mkdir(projectPath, { recursive: true });
-
-        // Create initial README.md file
-        await fs.writeFile(
-            `${projectPath}/README.md`,
-            `# ${name}\n\n${description || 'Project description'}\n`
-        );
+        // Create project in cloud storage with initial README
+        await storageService.ensureProjectExists(req.user!.id, projectId, name);
 
         res.status(201).json({
             success: true,
@@ -132,34 +125,45 @@ router.post('/:id/structure', async (req: AuthenticatedRequest, res: Response, n
             throw new AppError('Project not found', 404, 'NOT_FOUND');
         }
 
-        const projectPath = getProjectPath(req.user!.id, id);
-
         // Create full project structure based on type
         if (type === 'react') {
-            // React/TypeScript project structure
-            await fs.mkdir(`${projectPath}/src/components`, { recursive: true });
-            await fs.mkdir(`${projectPath}/src/hooks`, { recursive: true });
-            await fs.mkdir(`${projectPath}/src/utils`, { recursive: true });
+            // React/TypeScript project structure - upload files to cloud
+            const files = [
+                {
+                    path: 'src/components/App.tsx',
+                    content: `import React from 'react';\n\nexport default function App() {\n  return <div>Hello World</div>;\n}\n`
+                },
+                {
+                    path: 'src/components/Header.tsx',
+                    content: `import React from 'react';\n\nexport default function Header() {\n  return <header>My App</header>;\n}\n`
+                },
+                {
+                    path: 'src/hooks/useCustomHook.ts',
+                    content: `import { useState } from 'react';\n\nexport function useCustomHook(initialValue: string) {\n  const [value, setValue] = useState(initialValue);\n  return { value, setValue };\n}\n`
+                },
+                {
+                    path: 'src/utils/helpers.ts',
+                    content: `export function formatDate(date: Date): string {\n  return date.toLocaleDateString();\n}\n`
+                },
+                {
+                    path: 'package.json',
+                    content: JSON.stringify({
+                        name: project.name,
+                        version: '1.0.0',
+                        main: 'src/components/App.tsx'
+                    }, null, 2)
+                }
+            ];
 
-            // Create template files
-            await fs.writeFile(`${projectPath}/src/components/App.tsx`,
-                `import React from 'react';\n\nexport default function App() {\n  return <div>Hello World</div>;\n}\n`);
-
-            await fs.writeFile(`${projectPath}/src/components/Header.tsx`,
-                `import React from 'react';\n\nexport default function Header() {\n  return <header>My App</header>;\n}\n`);
-
-            await fs.writeFile(`${projectPath}/src/hooks/useCustomHook.ts`,
-                `import { useState } from 'react';\n\nexport function useCustomHook(initialValue: string) {\n  const [value, setValue] = useState(initialValue);\n  return { value, setValue };\n}\n`);
-
-            await fs.writeFile(`${projectPath}/src/utils/helpers.ts`,
-                `export function formatDate(date: Date): string {\n  return date.toLocaleDateString();\n}\n`);
-
-            await fs.writeFile(`${projectPath}/package.json`,
-                JSON.stringify({
-                    name: project.name,
-                    version: '1.0.0',
-                    main: 'src/components/App.tsx'
-                }, null, 2));
+            // Upload all files to cloud storage
+            for (const file of files) {
+                await storageService.uploadFile(
+                    req.user!.id,
+                    id,
+                    file.path,
+                    Buffer.from(file.content)
+                );
+            }
         }
 
         res.json({
@@ -263,15 +267,14 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => 
             throw new AppError('Project not found', 404, 'NOT_FOUND');
         }
 
+        // Delete all files from cloud storage
+        await storageService.deleteProject(req.user!.id, id);
+
         // Delete from database
         await supabaseAdmin
             .from('projects')
             .delete()
             .eq('id', id);
-
-        // Delete project directory
-        const projectPath = getProjectPath(req.user!.id, id);
-        await fs.rm(projectPath, { recursive: true, force: true });
 
         res.json({ success: true, data: { message: 'Project deleted' } });
     } catch (error) {

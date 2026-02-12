@@ -3,12 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { useProjectStore, Project } from '../store/projectStore';
 import { projectsApi, zipApi, gitApi } from '../services/api';
+import { useModal } from '../hooks/useModal';
+import ConfirmModal from '../components/ConfirmModal';
 import {
-    Code2, Plus, Folder, LogOut, Settings, Search,
+    Plus, Folder, LogOut, Settings, Search,
     Calendar, MoreVertical, Edit3, Trash2, Download, Github,
-    ChevronRight, Sparkles, ExternalLink
+    ChevronRight, Sparkles, User, Package, Link, AlertTriangle, Lightbulb, Loader
 } from 'lucide-react';
+import GitHubSetupModal from '../components/GitHubSetupModal';
 import '../styles/dashboard.css';
+import '../styles/github-modal.css';
 
 export default function DashboardPage() {
     const navigate = useNavigate();
@@ -16,8 +20,9 @@ export default function DashboardPage() {
     const { projects, setProjects, addProject, removeProject, updateProject, setLoading, isLoading } = useProjectStore();
 
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const { modalState, showAlert, showConfirm, closeModal } = useModal();
     const [showRenameModal, setShowRenameModal] = useState(false);
-    const [showGitHubModal, setShowGitHubModal] = useState(false);
+    const [showGitHubSetupModal, setShowGitHubSetupModal] = useState(false);
     const [projectToRename, setProjectToRename] = useState<Project | null>(null);
     const [projectToPush, setProjectToPush] = useState<Project | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -26,6 +31,15 @@ export default function DashboardPage() {
     useEffect(() => {
         loadProjects();
     }, []);
+
+    useEffect(() => {
+        // Close menu when clicking outside
+        const handleClickOutside = () => setActiveMenu(null);
+        if (activeMenu) {
+            document.addEventListener('click', handleClickOutside);
+            return () => document.removeEventListener('click', handleClickOutside);
+        }
+    }, [activeMenu]);
 
     const loadProjects = async () => {
         setLoading(true);
@@ -51,7 +65,13 @@ export default function DashboardPage() {
     };
 
     const handleDeleteProject = async (id: string) => {
-        if (!confirm('Are you sure you want to delete this project?')) return;
+        const confirmed = await showConfirm({
+            title: 'Delete Project',
+            message: 'Are you sure you want to delete this project? This action cannot be undone.',
+            confirmLabel: 'Delete',
+            variant: 'confirm',
+        });
+        if (!confirmed) return;
 
         try {
             await projectsApi.delete(id);
@@ -69,7 +89,7 @@ export default function DashboardPage() {
             setProjectToRename(null);
         } catch (error) {
             console.error('Failed to rename project:', error);
-            alert(`Failed to rename: ${(error as Error).message}`);
+            showAlert(`Failed to rename: ${(error as Error).message}`);
         }
     };
 
@@ -78,26 +98,14 @@ export default function DashboardPage() {
             zipApi.exportProject(id, name);
         } catch (error) {
             console.error('Failed to export project:', error);
-            alert(`Failed to export: ${(error as Error).message}`);
+            showAlert(`Failed to export: ${(error as Error).message}`);
         }
     };
 
-    const handlePushToGitHub = async (project: Project) => {
-        try {
-            await gitApi.push(project.id);
-            alert('Successfully pushed to GitHub!');
-        } catch (error) {
-            const message = (error as Error).message;
-            console.error('Failed to push to GitHub:', error);
-
-            // Check if user needs to connect GitHub
-            if (message.includes('GitHub authentication required') || message.includes('GITHUB_AUTH_REQUIRED')) {
-                setProjectToPush(project);
-                setShowGitHubModal(true);
-            } else {
-                alert(`Failed to push: ${message}. Make sure you have initialized a Git repository and set up a remote.`);
-            }
-        }
+    const handlePushToGitHub = (project: Project) => {
+        // Open modal immediately - the modal handles its own validation
+        setProjectToPush(project);
+        setShowGitHubSetupModal(true);
     };
 
     const filteredProjects = projects.filter(p =>
@@ -110,7 +118,7 @@ export default function DashboardPage() {
             <header className="dashboard-header">
                 <div className="header-left">
                     <div className="logo-small">
-                        <Code2 size={24} />
+                        <img src="/favicon.svg" width={28} height={28} alt="CloudCodeX logo" />
                     </div>
                     <h1>CloudCodeX</h1>
                 </div>
@@ -127,21 +135,32 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="user-menu">
-                        <button className="user-button">
+                        <button
+                            className="user-button"
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setActiveMenu(activeMenu === 'user-menu' ? null : 'user-menu');
+                            }}
+                        >
                             <div className="avatar">{user?.username?.[0]?.toUpperCase() || 'U'}</div>
                             <span>{user?.username}</span>
                         </button>
 
-                        <div className="user-dropdown">
-                            {user?.role === 'admin' && (
-                                <button onClick={() => navigate('/admin')}>
-                                    <Settings size={16} /> Admin Dashboard
+                        {activeMenu === 'user-menu' && (
+                            <div className="user-dropdown" onClick={e => e.stopPropagation()}>
+                                <button onClick={() => navigate('/profile')}>
+                                    <User size={16} /> Profile
                                 </button>
-                            )}
-                            <button onClick={logout} className="logout-btn">
-                                <LogOut size={16} /> Sign Out
-                            </button>
-                        </div>
+                                {user?.role === 'admin' && (
+                                    <button onClick={() => navigate('/admin')}>
+                                        <Settings size={16} /> Admin Dashboard
+                                    </button>
+                                )}
+                                <button onClick={logout} className="logout-btn">
+                                    <LogOut size={16} /> Sign Out
+                                </button>
+                            </div>
+                        )}
                     </div>
                 </div>
             </header>
@@ -229,6 +248,33 @@ export default function DashboardPage() {
                     onRename={(newName) => handleRenameProject(projectToRename.id, newName)}
                 />
             )}
+
+            {/* GitHub Setup Modal */}
+            {showGitHubSetupModal && projectToPush && (
+                <GitHubSetupModal
+                    project={projectToPush}
+                    onClose={() => {
+                        setShowGitHubSetupModal(false);
+                        setProjectToPush(null);
+                    }}
+                    onSuccess={() => {
+                        // Refresh projects list
+                        loadProjects();
+                    }}
+                />
+            )}
+
+            <ConfirmModal
+                isOpen={modalState.isOpen}
+                title={modalState.title}
+                message={modalState.message}
+                variant={modalState.variant}
+                confirmLabel={modalState.confirmLabel}
+                cancelLabel={modalState.cancelLabel}
+                showCancel={modalState.showCancel}
+                onConfirm={modalState.onConfirm}
+                onCancel={closeModal}
+            />
         </div>
     );
 }
@@ -257,7 +303,7 @@ function ProjectCard({
     return (
         <div className="project-card" onClick={onOpen}>
             <div className="project-header">
-                <div className="project-icon">📁</div>
+                <div className="project-icon"><Folder size={20} /></div>
                 <button
                     className="menu-btn"
                     onClick={(e) => {
@@ -345,17 +391,151 @@ function CreateProjectModal({
     onClose: () => void;
     onCreate: (name: string, description: string) => void;
 }) {
+    const [importType, setImportType] = useState<'manual' | 'zip' | 'folder' | 'git'>('manual');
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [zipFile, setZipFile] = useState<File | null>(null);
+    const [folderFiles, setFolderFiles] = useState<FileList | null>(null);
+    const [gitUrl, setGitUrl] = useState('');
+    const [gitBranch, setGitBranch] = useState('');
+    const [isImporting, setIsImporting] = useState(false);
+    const [error, setError] = useState('');
+
+    const handleZipFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            if (!file.name.endsWith('.zip')) {
+                setError('Only ZIP files are allowed');
+                return;
+            }
+            setZipFile(file);
+            setError('');
+            // Auto-fill project name from ZIP filename
+            if (!name) {
+                setName(file.name.replace('.zip', ''));
+            }
+        }
+    };
+
+    const handleFolderChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const files = e.target.files;
+        if (files && files.length > 0) {
+            setFolderFiles(files);
+            setError('');
+            // Auto-fill project name from folder name
+            if (!name && files[0].webkitRelativePath) {
+                const folderName = files[0].webkitRelativePath.split('/')[0];
+                setName(folderName);
+            }
+        }
+    };
+
+    const handleGitUrlChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const url = e.target.value;
+        setGitUrl(url);
+        setError('');
+        // Auto-fill project name from repo URL
+        if (!name && url) {
+            const match = url.match(/\/([^\/]+?)(\.git)?$/);
+            if (match) {
+                setName(match[1]);
+            }
+        }
+    };
+
+    const createZipFromFolder = async (files: FileList): Promise<File> => {
+        const JSZip = (await import('jszip')).default;
+        const zip = new JSZip();
+
+        for (let i = 0; i < files.length; i++) {
+            const file = files[i];
+            const relativePath = file.webkitRelativePath.split('/').slice(1).join('/');
+            zip.file(relativePath, file);
+        }
+
+        const blob = await zip.generateAsync({ type: 'blob' });
+        return new File([blob], `${name || 'folder'}.zip`, { type: 'application/zip' });
+    };
+
+    const handleSubmit = async () => {
+        setError('');
+        setIsImporting(true);
+
+        try {
+            if (importType === 'manual') {
+                onCreate(name, description);
+            } else if (importType === 'zip' && zipFile) {
+                // Create project first
+                const project = await projectsApi.create({ name, description });
+                // Upload ZIP
+                await zipApi.import(project.id, zipFile);
+                // Navigate to editor
+                window.location.href = `/editor/${project.id}`;
+            } else if (importType === 'folder' && folderFiles) {
+                // Convert folder to ZIP
+                const zipFileFromFolder = await createZipFromFolder(folderFiles);
+                // Create project
+                const project = await projectsApi.create({ name, description });
+                // Upload ZIP
+                await zipApi.import(project.id, zipFileFromFolder);
+                // Navigate to editor
+                window.location.href = `/editor/${project.id}`;
+            } else if (importType === 'git' && gitUrl) {
+                // Create project first
+                const project = await projectsApi.create({ name, description });
+                // Clone repository
+                await gitApi.clone(project.id, gitUrl, gitBranch || undefined);
+                // Navigate to editor
+                window.location.href = `/editor/${project.id}`;
+            }
+        } catch (err) {
+            setError((err as Error).message || 'Import failed');
+            setIsImporting(false);
+        }
+    };
+
+    const isSubmitDisabled = () => {
+        if (!name.trim()) return true;
+        if (importType === 'zip' && !zipFile) return true;
+        if (importType === 'folder' && !folderFiles) return true;
+        if (importType === 'git' && !gitUrl.trim()) return true;
+        return isImporting;
+    };
 
     return (
         <div className="modal-overlay" onClick={onClose}>
             <div className="modal" onClick={e => e.stopPropagation()}>
                 <h2>Create New Project</h2>
-                <p className="modal-subtitle">
-                    Projects support all programming languages. Create files of any type!
-                </p>
 
+                {/* Import Type Tabs */}
+                <div className="import-tabs">
+                    <button
+                        className={`import-tab ${importType === 'manual' ? 'active' : ''}`}
+                        onClick={() => setImportType('manual')}
+                    >
+                        <Sparkles size={14} /> New Project
+                    </button>
+                    <button
+                        className={`import-tab ${importType === 'zip' ? 'active' : ''}`}
+                        onClick={() => setImportType('zip')}
+                    >
+                        <Package size={14} /> Import ZIP
+                    </button>
+                    <button
+                        className={`import-tab ${importType === 'folder' ? 'active' : ''}`}
+                        onClick={() => setImportType('folder')}
+                    >
+                        <Folder size={14} /> Upload Folder
+                    </button>
+                    <button
+                        className={`import-tab ${importType === 'git' ? 'active' : ''}`}
+                        onClick={() => setImportType('git')}
+                    >
+                        <Link size={14} /> Clone Git Repo
+                    </button>
+                </div>
+
+                {/* Common Fields */}
                 <div className="form-group">
                     <label>Project Name</label>
                     <input
@@ -364,7 +544,7 @@ function CreateProjectModal({
                         placeholder="my-awesome-project"
                         value={name}
                         onChange={(e) => setName(e.target.value)}
-                        autoFocus
+                        autoFocus={importType === 'manual'}
                     />
                 </div>
 
@@ -375,23 +555,109 @@ function CreateProjectModal({
                         placeholder="What's this project about?"
                         value={description}
                         onChange={(e) => setDescription(e.target.value)}
-                        rows={3}
+                        rows={2}
                     />
                 </div>
 
-                <div className="info-box">
-                    <span className="info-icon">💡</span>
-                    <p>Your project will start with a README.md file. You can create files in any language: Python, JavaScript, Java, C++, Go, Rust, and more!</p>
-                </div>
+                {/* Type-specific Fields */}
+                {importType === 'zip' && (
+                    <div className="form-group">
+                        <label>ZIP File</label>
+                        <input
+                            type="file"
+                            accept=".zip"
+                            className="input"
+                            onChange={handleZipFileChange}
+                        />
+                        {zipFile && (
+                            <p className="file-selected"><Package size={14} /> {zipFile.name} ({(zipFile.size / 1024).toFixed(2)} KB)</p>
+                        )}
+                    </div>
+                )}
 
+                {importType === 'folder' && (
+                    <div className="form-group">
+                        <label>Select Folder</label>
+                        <input
+                            type="file"
+                            // @ts-ignore - webkitdirectory is not in standard types
+                            webkitdirectory=""
+                            directory=""
+                            className="input"
+                            onChange={handleFolderChange}
+                        />
+                        {folderFiles && (
+                            <p className="file-selected"><Folder size={14} /> {folderFiles.length} files selected</p>
+                        )}
+                    </div>
+                )}
+
+                {importType === 'git' && (
+                    <>
+                        <div className="form-group">
+                            <label>Repository URL</label>
+                            <input
+                                type="text"
+                                className="input"
+                                placeholder="https://github.com/username/repo.git"
+                                value={gitUrl}
+                                onChange={handleGitUrlChange}
+                            />
+                        </div>
+                        <div className="form-group">
+                            <label>Branch (optional)</label>
+                            <input
+                                type="text"
+                                className="input"
+                                placeholder="main"
+                                value={gitBranch}
+                                onChange={(e) => setGitBranch(e.target.value)}
+                            />
+                        </div>
+                    </>
+                )}
+
+                {/* Error Message */}
+                {error && (
+                    <div className="error-box">
+                        <span><AlertTriangle size={16} /></span>
+                        <p>{error}</p>
+                    </div>
+                )}
+
+                {/* Info Box */}
+                {importType === 'manual' && (
+                    <div className="info-box">
+                        <span className="info-icon"><Lightbulb size={16} /></span>
+                        <p>Your project will start with a README.md file. You can create files in any language!</p>
+                    </div>
+                )}
+                {importType === 'folder' && (
+                    <div className="info-box">
+                        <span className="info-icon"><Lightbulb size={16} /></span>
+                        <p>Select a folder to upload. All files and subdirectories will be preserved.</p>
+                    </div>
+                )}
+
+                {/* Actions */}
                 <div className="modal-actions">
-                    <button className="btn btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="btn btn-secondary" onClick={onClose} disabled={isImporting}>
+                        Cancel
+                    </button>
                     <button
                         className="btn btn-primary"
-                        onClick={() => onCreate(name, description)}
-                        disabled={!name.trim()}
+                        onClick={handleSubmit}
+                        disabled={isSubmitDisabled()}
                     >
-                        <Plus size={18} /> Create Project
+                        {isImporting ? (
+                            <><Loader size={16} className="spin" /> Importing...</>
+                        ) : importType === 'manual' ? (
+                            <><Plus size={18} /> Create Project</>
+                        ) : importType === 'git' ? (
+                            <><Link size={16} /> Clone Repository</>
+                        ) : (
+                            <><Package size={16} /> Import Project</>
+                        )}
                     </button>
                 </div>
             </div>

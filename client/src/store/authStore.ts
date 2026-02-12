@@ -13,12 +13,15 @@ interface AuthState {
     token: string | null;
     isAuthenticated: boolean;
     isLoading: boolean;
+    sessionChecked: boolean;
 
     login: (email: string, password: string) => Promise<void>;
     register: (email: string, password: string, username: string) => Promise<void>;
     loginWithGitHub: () => void;
+    loginWithGoogle: () => void;
     setAuth: (user: User, token: string) => void;
-    logout: () => void;
+    logout: () => Promise<void>;
+    validateSession: () => Promise<void>;
 }
 
 const API_URL = '/api';
@@ -30,6 +33,7 @@ export const useAuthStore = create<AuthState>()(
             token: null,
             isAuthenticated: false,
             isLoading: false,
+            sessionChecked: false,
 
             login: async (email: string, password: string) => {
                 set({ isLoading: true });
@@ -89,6 +93,10 @@ export const useAuthStore = create<AuthState>()(
                 window.location.href = `${API_URL}/auth/github`;
             },
 
+            loginWithGoogle: () => {
+                window.location.href = `${API_URL}/auth/google`;
+            },
+
             setAuth: (user: User, token: string) => {
                 set({
                     user,
@@ -98,12 +106,70 @@ export const useAuthStore = create<AuthState>()(
                 });
             },
 
-            logout: () => {
-                set({
-                    user: null,
-                    token: null,
-                    isAuthenticated: false
-                });
+            validateSession: async () => {
+                const { token, isAuthenticated } = get();
+                if (!token || !isAuthenticated) {
+                    set({ sessionChecked: true });
+                    return;
+                }
+
+                try {
+                    const response = await fetch(`${API_URL}/auth/session`, {
+                        headers: { 'Authorization': `Bearer ${token}` }
+                    });
+
+                    if (!response.ok) {
+                        // Token is invalid/expired — clear auth state silently
+                        console.warn('Persisted session invalid, clearing auth state');
+                        localStorage.removeItem('auth-storage');
+                        set({
+                            user: null,
+                            token: null,
+                            isAuthenticated: false,
+                            sessionChecked: true
+                        });
+                        return;
+                    }
+
+                    const data = await response.json();
+                    if (data.success && data.data?.user) {
+                        // Update user data from server in case it changed
+                        set({
+                            user: data.data.user,
+                            sessionChecked: true
+                        });
+                    }
+                } catch (error) {
+                    // Network error — keep existing auth state, don't force logout
+                    console.warn('Session validation failed (network):', error);
+                    set({ sessionChecked: true });
+                }
+            },
+
+            logout: async () => {
+                try {
+                    // Call server logout endpoint (best effort)
+                    await fetch(`${API_URL}/auth/logout`, {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'Authorization': `Bearer ${get().token}`
+                        }
+                    });
+                } catch (error) {
+                    console.warn('Server logout failed:', error);
+                } finally {
+                    // Clear local storage explicitly to be safe
+                    localStorage.removeItem('auth-storage');
+
+                    // Reset store state
+                    set({
+                        user: null,
+                        token: null,
+                        isAuthenticated: false,
+                        sessionChecked: true
+                    });
+                }
             }
         }),
         {

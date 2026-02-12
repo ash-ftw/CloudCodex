@@ -1,244 +1,92 @@
-import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { adminApi } from '../services/api';
+import { useAdminStore } from '../store/adminStore';
 import {
-    LayoutDashboard, Users, Activity, Server, ChevronLeft,
-    RefreshCw, AlertTriangle, CheckCircle, Clock, Cpu
+    LayoutDashboard, Users, FolderKanban, Activity, Server,
+    FileText, BarChart3, Settings, ShieldAlert, ChevronLeft
 } from 'lucide-react';
+import AdminOverview from '../components/admin/AdminOverview';
+import AdminUsers from '../components/admin/AdminUsers';
+import AdminProjects from '../components/admin/AdminProjects';
+import AdminExecutions from '../components/admin/AdminExecutions';
+import AdminContainers from '../components/admin/AdminContainers';
+import AdminLogs from '../components/admin/AdminLogs';
+import AdminAnalytics from '../components/admin/AdminAnalytics';
+import AdminSettings from '../components/admin/AdminSettings';
+import AdminAlerts from '../components/admin/AdminAlerts';
 import '../styles/admin.css';
 
-interface UsageStats {
-    users: { total: number };
-    projects: { total: number };
-    executions: {
-        total: number;
-        last24Hours: number;
-        byStatus: Record<string, number>;
-        byLanguage: Record<string, number>;
-    };
-}
+type Tab = 'overview' | 'users' | 'projects' | 'executions' | 'containers' | 'logs' | 'analytics' | 'settings' | 'alerts';
+
+const NAV_ITEMS: { tab: Tab; label: string; icon: typeof LayoutDashboard; section?: string }[] = [
+    { tab: 'overview', label: 'Overview', icon: LayoutDashboard },
+    { tab: 'users', label: 'Users', icon: Users, section: 'Management' },
+    { tab: 'projects', label: 'Projects', icon: FolderKanban },
+    { tab: 'executions', label: 'Executions', icon: Activity, section: 'Monitoring' },
+    { tab: 'containers', label: 'Containers', icon: Server },
+    { tab: 'logs', label: 'Logs & Audit', icon: FileText, section: 'System' },
+    { tab: 'analytics', label: 'Analytics', icon: BarChart3 },
+    { tab: 'settings', label: 'Settings', icon: Settings },
+    { tab: 'alerts', label: 'Security Alerts', icon: ShieldAlert },
+];
+
+const TAB_COMPONENTS: Record<Tab, React.FC> = {
+    overview: AdminOverview,
+    users: AdminUsers,
+    projects: AdminProjects,
+    executions: AdminExecutions,
+    containers: AdminContainers,
+    logs: AdminLogs,
+    analytics: AdminAnalytics,
+    settings: AdminSettings,
+    alerts: AdminAlerts,
+};
 
 export default function AdminPage() {
     const navigate = useNavigate();
-    const [activeTab, setActiveTab] = useState('overview');
-    const [usage, setUsage] = useState<UsageStats | null>(null);
-    const [logs, setLogs] = useState<any[]>([]);
-    const [users, setUsers] = useState<any[]>([]);
-    const [containers, setContainers] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(false);
-
-    useEffect(() => {
-        loadData();
-    }, [activeTab]);
-
-    const loadData = async () => {
-        setIsLoading(true);
-        try {
-            if (activeTab === 'overview' || activeTab === 'usage') {
-                const usageData = await adminApi.usage();
-                setUsage(usageData);
-            }
-            if (activeTab === 'logs') {
-                const logsData = await adminApi.logs();
-                setLogs(logsData.data || logsData);
-            }
-            if (activeTab === 'users') {
-                const usersData = await adminApi.users();
-                setUsers(usersData.data || usersData);
-            }
-            if (activeTab === 'containers') {
-                const containersData = await adminApi.containers();
-                setContainers(containersData);
-            }
-        } catch (error) {
-            console.error('Failed to load admin data:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    };
+    const { activeTab, setActiveTab } = useAdminStore();
+    const ActiveComponent = TAB_COMPONENTS[(activeTab as Tab) || 'overview'] || AdminOverview;
 
     return (
         <div className="admin-page">
-            {/* Header */}
             <header className="admin-header">
                 <div className="header-left">
                     <button className="btn-icon" onClick={() => navigate('/dashboard')}>
                         <ChevronLeft size={20} />
                     </button>
-                    <h1>Admin Dashboard</h1>
+                    <h1>Admin Console</h1>
                 </div>
-                <button className="btn btn-secondary" onClick={loadData} disabled={isLoading}>
-                    <RefreshCw size={16} className={isLoading ? 'animate-spin' : ''} />
-                    Refresh
-                </button>
+                <div className="header-right">
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                        CloudCodeX Admin
+                    </span>
+                </div>
             </header>
 
             <div className="admin-content">
-                {/* Sidebar */}
                 <aside className="admin-sidebar">
                     <nav className="admin-nav">
-                        <button
-                            className={`nav-item ${activeTab === 'overview' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('overview')}
-                        >
-                            <LayoutDashboard size={18} /> Overview
-                        </button>
-                        <button
-                            className={`nav-item ${activeTab === 'logs' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('logs')}
-                        >
-                            <Activity size={18} /> Execution Logs
-                        </button>
-                        <button
-                            className={`nav-item ${activeTab === 'containers' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('containers')}
-                        >
-                            <Server size={18} /> Active Containers
-                        </button>
-                        <button
-                            className={`nav-item ${activeTab === 'users' ? 'active' : ''}`}
-                            onClick={() => setActiveTab('users')}
-                        >
-                            <Users size={18} /> Users
-                        </button>
+                        {NAV_ITEMS.map((item, idx) => (
+                            <div key={item.tab}>
+                                {item.section && (
+                                    <>
+                                        {idx > 0 && <div className="nav-divider" />}
+                                        <div className="nav-section-label">{item.section}</div>
+                                    </>
+                                )}
+                                <button
+                                    className={`nav-item ${activeTab === item.tab ? 'active' : ''}`}
+                                    onClick={() => setActiveTab(item.tab)}
+                                >
+                                    <item.icon size={18} />
+                                    {item.label}
+                                </button>
+                            </div>
+                        ))}
                     </nav>
                 </aside>
 
-                {/* Main Content */}
                 <main className="admin-main">
-                    {activeTab === 'overview' && usage && (
-                        <div className="overview-grid">
-                            <div className="stat-card">
-                                <div className="stat-icon users-icon">
-                                    <Users size={24} />
-                                </div>
-                                <div className="stat-info">
-                                    <span className="stat-value">{usage.users.total}</span>
-                                    <span className="stat-label">Total Users</span>
-                                </div>
-                            </div>
-
-                            <div className="stat-card">
-                                <div className="stat-icon projects-icon">
-                                    <LayoutDashboard size={24} />
-                                </div>
-                                <div className="stat-info">
-                                    <span className="stat-value">{usage.projects.total}</span>
-                                    <span className="stat-label">Total Projects</span>
-                                </div>
-                            </div>
-
-                            <div className="stat-card">
-                                <div className="stat-icon executions-icon">
-                                    <Cpu size={24} />
-                                </div>
-                                <div className="stat-info">
-                                    <span className="stat-value">{usage.executions.total}</span>
-                                    <span className="stat-label">Total Executions</span>
-                                </div>
-                            </div>
-
-                            <div className="stat-card">
-                                <div className="stat-icon recent-icon">
-                                    <Clock size={24} />
-                                </div>
-                                <div className="stat-info">
-                                    <span className="stat-value">{usage.executions.last24Hours}</span>
-                                    <span className="stat-label">Last 24 Hours</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {activeTab === 'logs' && (
-                        <div className="logs-table">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Time</th>
-                                        <th>User</th>
-                                        <th>Language</th>
-                                        <th>Status</th>
-                                        <th>Duration</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {logs.map((log) => (
-                                        <tr key={log.id}>
-                                            <td>{new Date(log.created_at).toLocaleString()}</td>
-                                            <td>{log.profiles?.username || log.user_id}</td>
-                                            <td><span className="lang-badge">{log.language}</span></td>
-                                            <td>
-                                                <span className={`status-badge ${log.status}`}>
-                                                    {log.status === 'completed' && <CheckCircle size={12} />}
-                                                    {log.status === 'error' && <AlertTriangle size={12} />}
-                                                    {log.status === 'timeout' && <Clock size={12} />}
-                                                    {log.status}
-                                                </span>
-                                            </td>
-                                            <td>{log.execution_time_ms ? `${log.execution_time_ms}ms` : '-'}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
-
-                    {activeTab === 'containers' && (
-                        <div className="containers-grid">
-                            {containers.length === 0 ? (
-                                <div className="empty-state">
-                                    <Server size={48} />
-                                    <p>No active containers</p>
-                                </div>
-                            ) : (
-                                containers.map((container) => (
-                                    <div key={container.id} className="container-card">
-                                        <div className="container-header">
-                                            <Server size={18} />
-                                            <span className="container-id">{container.id}</span>
-                                        </div>
-                                        <div className="container-info">
-                                            <span>Image: {container.image}</span>
-                                            <span>Status: {container.status}</span>
-                                            <span>State: {container.state}</span>
-                                        </div>
-                                    </div>
-                                ))
-                            )}
-                        </div>
-                    )}
-
-                    {activeTab === 'users' && (
-                        <div className="users-table">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Username</th>
-                                        <th>Role</th>
-                                        <th>Projects</th>
-                                        <th>Executions</th>
-                                        <th>Storage</th>
-                                        <th>Joined</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {users.map((user) => (
-                                        <tr key={user.id}>
-                                            <td>{user.username}</td>
-                                            <td>
-                                                <span className={`role-badge ${user.role}`}>{user.role}</span>
-                                            </td>
-                                            <td>{user.projectCount}</td>
-                                            <td>{user.executionCount}</td>
-                                            <td>{user.storageUsedMb?.toFixed(1) || 0} MB</td>
-                                            <td>{new Date(user.createdAt).toLocaleDateString()}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
-                        </div>
-                    )}
+                    <ActiveComponent />
                 </main>
             </div>
         </div>

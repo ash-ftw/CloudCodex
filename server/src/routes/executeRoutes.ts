@@ -2,14 +2,17 @@ import { Router, Response } from 'express';
 import { z } from 'zod';
 import { spawn, ChildProcess } from 'child_process';
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs/promises';
+import path from 'path';
+import os from 'os';
 import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddleware';
 import { executionLimiter } from '../middleware/rateLimiter';
 import { AppError } from '../middleware/errorHandler';
-import { getProjectPath } from '../utils/pathSecurity';
 import { SUPPORTED_LANGUAGES, config } from '../config/index';
 import { supabaseAdmin } from '../config/supabase';
 import { emitExecutionOutput } from '../services/socketService';
 import { SupportedLanguage, ExecutionStatus } from '../types/index';
+import * as storageService from '../services/storageService';
 
 const router = Router();
 
@@ -40,8 +43,6 @@ router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Respon
             throw new AppError('Unsupported language', 400, 'UNSUPPORTED_LANGUAGE');
         }
 
-        const projectPath = getProjectPath(req.user!.id, projectId);
-
         // Log execution start
         await supabaseAdmin.from('execution_logs').insert({
             id: executionId,
@@ -65,7 +66,7 @@ router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Respon
         executeWithDockerCLI(
             executionId,
             req.user!.id,
-            projectPath,
+            projectId,
             filePath,
             langConfig,
             stdin,
@@ -151,7 +152,7 @@ router.get('/:executionId', async (req: AuthenticatedRequest, res: Response, nex
 async function executeWithDockerCLI(
     executionId: string,
     userId: string,
-    projectPath: string,
+    projectId: string,
     filePath: string,
     langConfig: typeof SUPPORTED_LANGUAGES['python'],
     stdin: string | undefined,
@@ -162,8 +163,41 @@ async function executeWithDockerCLI(
     let stderr = '';
     let exitCode = 0;
     let status: ExecutionStatus = 'completed' as ExecutionStatus;
+    let tempDir: string | null = null;
 
     try {
+        console.log(`[Execute] Starting execution ${executionId}`);
+        console.log(`[Execute] Project: ${projectId}`);
+        console.log(`[Execute] File: ${filePath}`);
+
+        // Step 1: Create temporary directory for this execution
+        tempDir = path.join(os.tmpdir(), `cloudcodex-${executionId}`);
+        await fs.mkdir(tempDir, { recursive: true });
+        console.log(`[Execute] Created temp directory: ${tempDir}`);
+
+        // Step 2: Download all project files from cloud storage
+        console.log(`[Execute] Downloading project files from cloud...`);
+        const files = await storageService.listFiles(userId, projectId, '');
+
+        let downloadedFiles = 0;
+        for (const file of files) {
+            if (!file.isDirectory) {
+                try {
+                    const buffer = await storageService.downloadFile(userId, projectId, file.path);
+                    const localFilePath = path.join(tempDir, file.path);
+
+                    // Create parent directories if needed
+                    await fs.mkdir(path.dirname(localFilePath), { recursive: true });
+                    await fs.writeFile(localFilePath, buffer);
+                    downloadedFiles++;
+                } catch (err) {
+                    console.warn(`[Execute] Failed to download ${file.path}:`, err);
+                }
+            }
+        }
+        console.log(`[Execute] Downloaded ${downloadedFiles} files to temp directory`);
+
+        // Step 3: Prepare Docker execution
         // Get the actual filename from the path
         const fileName = filePath.split('/').pop() || filePath;
         const fileInContainer = `/code/${filePath}`;
@@ -182,23 +216,13 @@ async function executeWithDockerCLI(
             command = langConfig.runCommand.replace(/\/code\/main\.[a-z]+/g, fileInContainer);
         }
 
-        // If stdin is provided, pipe it to the command
-        if (stdin && stdin.trim()) {
-            // Escape special characters in stdin for shell
-            const escapedStdin = stdin
-                .replace(/\\/g, '\\\\')
-                .replace(/'/g, "'\\''")
-                .replace(/\n/g, '\\n');
-            command = `printf '${escapedStdin}' | ${command}`;
-        }
+        // stdin will be piped directly to the Docker process below
 
-        // Convert Windows paths to Docker-compatible format
-        // Windows: D:\p1\workspaces\... -> /d/p1/workspaces/...
-        let dockerPath = projectPath;
+        let dockerPath = tempDir!;  // Use temporary directory
         if (process.platform === 'win32') {
             // Convert backslashes to forward slashes
-            dockerPath = projectPath.replace(/\\/g, '/');
-            // Convert drive letter: D:/... -> /d/...
+            dockerPath = tempDir!.replace(/\\/g, '/');
+            // Convert drive letter: C:/... -> /c/...
             dockerPath = dockerPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
         }
 
@@ -214,6 +238,7 @@ async function executeWithDockerCLI(
         const dockerArgs = [
             'run',
             '--rm',
+            '-i', // Enable interactive mode for stdin
             '-v', `${dockerPath}:/code:ro`,
             '-w', '/code',
             '-m', `${memoryMb}m`,
@@ -228,6 +253,15 @@ async function executeWithDockerCLI(
         // Spawn Docker process
         const dockerProcess = spawn('docker', dockerArgs);
         activeExecutions.set(executionId, { process: dockerProcess, userId });
+
+        // Pipe stdin if provided
+        if (stdin && stdin.trim()) {
+            // Ensure stdin ends with newline for scanf/input functions
+            const stdinWithNewline = stdin.endsWith('\n') ? stdin : stdin + '\n';
+            console.log(`[Execute] Piping stdin: ${JSON.stringify(stdinWithNewline)}`);
+            dockerProcess.stdin.write(stdinWithNewline);
+            dockerProcess.stdin.end();
+        }
 
         // Handle stdout
         dockerProcess.stdout.on('data', (data: Buffer) => {
@@ -280,6 +314,18 @@ async function executeWithDockerCLI(
     } finally {
         activeExecutions.delete(executionId);
         const executionTime = Date.now() - startTime;
+
+        console.log(`[Execute] Execution finished. Status: ${status}, Time: ${executionTime}ms`);
+
+        // Cleanup temporary directory
+        if (tempDir) {
+            try {
+                await fs.rm(tempDir, { recursive: true, force: true });
+                console.log(`[Execute] Cleaned up temp directory: ${tempDir}`);
+            } catch (err) {
+                console.error(`[Execute] Failed to cleanup temp directory:`, err);
+            }
+        }
 
         console.log(`[Execute] Execution finished. Status: ${status}, Time: ${executionTime}ms`);
 
