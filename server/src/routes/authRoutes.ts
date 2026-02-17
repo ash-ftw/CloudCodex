@@ -264,30 +264,72 @@ router.get('/github/callback', async (req, res: Response, next) => {
 
         const githubUser = await userResponse.json() as { id: number; email: string; login: string };
 
-        // Check if user exists
-        const { data: existingProfile } = await supabaseAdmin
-            .from('profiles')
-            .select('*')
-            .eq('username', githubUser.login)
+        let userId!: string;
+        let existingUser = false;
+
+        // 1. Check connected_accounts by GitHub provider ID
+        const { data: connectedAccount } = await supabaseAdmin
+            .from('connected_accounts')
+            .select('user_id')
+            .eq('provider', 'github')
+            .eq('provider_user_id', githubUser.id.toString())
             .single();
 
-        let userId: string;
+        if (connectedAccount) {
+            userId = connectedAccount.user_id;
+            existingUser = true;
+        } else {
+            // 2. Check profiles by username
+            const { data: existingProfile } = await supabaseAdmin
+                .from('profiles')
+                .select('*')
+                .eq('username', githubUser.login)
+                .single();
 
-        if (existingProfile) {
-            userId = existingProfile.id;
+            if (existingProfile) {
+                userId = existingProfile.id;
+                existingUser = true;
+            } else {
+                // 3. Check if a Supabase auth user already exists with this email
+                const githubEmail = githubUser.email || `${githubUser.login}@github.local`;
+                const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+                const matchingUser = existingUsers?.users?.find(u => u.email === githubEmail);
 
+                if (matchingUser) {
+                    userId = matchingUser.id;
+                    existingUser = true;
+
+                    // Ensure profile exists
+                    const { data: prof } = await supabaseAdmin
+                        .from('profiles')
+                        .select('id')
+                        .eq('id', userId)
+                        .single();
+
+                    if (!prof) {
+                        await supabaseAdmin.from('profiles').insert({
+                            id: userId,
+                            username: githubUser.login,
+                            role: 'user'
+                        });
+                    }
+                }
+            }
+        }
+
+        if (existingUser) {
             // Update GitHub token in both tables
             await supabaseAdmin
                 .from('github_tokens')
                 .upsert({
-                    user_id: userId,
+                    user_id: userId!,
                     access_token: tokenData.access_token
                 });
 
             await supabaseAdmin
                 .from('connected_accounts')
                 .upsert({
-                    user_id: userId,
+                    user_id: userId!,
                     provider: 'github',
                     provider_user_id: githubUser.id.toString(),
                     email: githubUser.email,
@@ -303,6 +345,7 @@ router.get('/github/callback', async (req, res: Response, next) => {
             });
 
             if (error || !newUser.user) {
+                console.error('Failed to create user:', error?.message);
                 throw new AppError('Failed to create user', 500, 'USER_CREATION_FAILED');
             }
 

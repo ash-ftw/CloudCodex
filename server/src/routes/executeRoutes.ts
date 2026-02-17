@@ -175,9 +175,10 @@ async function executeWithDockerCLI(
         await fs.mkdir(tempDir, { recursive: true });
         console.log(`[Execute] Created temp directory: ${tempDir}`);
 
-        // Step 2: Download all project files from cloud storage
+        // Step 2: Download all project files from cloud storage (recursively)
         console.log(`[Execute] Downloading project files from cloud...`);
-        const files = await storageService.listFiles(userId, projectId, '');
+        const files = await storageService.listAllFilesRecursive(userId, projectId, '');
+        console.log(`[Execute] Found ${files.length} items (files + dirs): ${files.map(f => `${f.path} (${f.isDirectory ? 'DIR' : 'FILE'})`).join(', ')}`);
 
         let downloadedFiles = 0;
         for (const file of files) {
@@ -196,6 +197,36 @@ async function executeWithDockerCLI(
             }
         }
         console.log(`[Execute] Downloaded ${downloadedFiles} files to temp directory`);
+
+        // Verify temp directory contents
+        const verifyFiles = async (dir: string, prefix = ''): Promise<string[]> => {
+            const entries = await fs.readdir(dir, { withFileTypes: true });
+            const result: string[] = [];
+            for (const entry of entries) {
+                const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+                if (entry.isDirectory()) {
+                    result.push(...await verifyFiles(path.join(dir, entry.name), rel));
+                } else {
+                    result.push(rel);
+                }
+            }
+            return result;
+        };
+        const tempFiles = await verifyFiles(tempDir);
+        console.log(`[Execute] Temp directory contains ${tempFiles.length} files: ${tempFiles.join(', ')}`);
+
+        if (!tempFiles.some(f => f.replace(/\\/g, '/') === filePath.replace(/\\/g, '/'))) {
+            console.warn(`[Execute] Target file '${filePath}' not found after recursive listing. Attempting direct download...`);
+            try {
+                const buffer = await storageService.downloadFile(userId, projectId, filePath);
+                const localFilePath = path.join(tempDir, filePath);
+                await fs.mkdir(path.dirname(localFilePath), { recursive: true });
+                await fs.writeFile(localFilePath, buffer);
+                console.log(`[Execute] ✓ Direct download of '${filePath}' succeeded`);
+            } catch (err) {
+                console.error(`[Execute] ✗ Direct download of '${filePath}' also failed:`, err);
+            }
+        }
 
         // Step 3: Prepare Docker execution
         // Get the actual filename from the path

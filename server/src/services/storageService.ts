@@ -53,8 +53,11 @@ async function withRetry<T>(
  * Get storage path for a file
  */
 function getStoragePath(userId: string, projectId: string, filePath: string): string {
-    // Normalize path separators
-    const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '');
+    // Normalize path separators and strip leading slashes
+    const normalizedPath = filePath.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+$/, '');
+    if (!normalizedPath) {
+        return `${userId}/${projectId}`;
+    }
     return `${userId}/${projectId}/${normalizedPath}`;
 }
 
@@ -155,9 +158,8 @@ export async function listFiles(
     projectId: string,
     directory: string = ''
 ): Promise<FileInfo[]> {
-    const prefix = directory
-        ? getStoragePath(userId, projectId, directory)
-        : getStoragePath(userId, projectId, '');
+    // getStoragePath now correctly handles empty directory (no trailing slash)
+    const prefix = getStoragePath(userId, projectId, directory);
 
     return await withRetry(async () => {
         const { data, error } = await supabaseAdmin.storage
@@ -175,11 +177,13 @@ export async function listFiles(
         const items = (data || []).map(item => {
             const itemPath = directory ? `${directory}/${item.name}` : item.name;
 
-            // In Supabase Storage, there are no real directories
-            // Items with null id are "folders" (prefixes)
-            // But we need to check if it looks like a file or folder
-            const hasExtension = item.name.includes('.');
-            const isFolder = item.id === null || (!hasExtension && !item.metadata);
+            // In Supabase Storage, folder prefixes have null/empty id and no metadata.
+            // Files always have a non-null id with metadata (size, mimetype, etc).
+            // Use loose equality (==) to catch both null and undefined for id.
+            const isFolder = item.id == null
+                || item.id === ''
+                || (!item.metadata && !item.id)
+                || (item.metadata && !item.metadata.size && !item.metadata.mimetype);
 
             return {
                 name: item.name,
