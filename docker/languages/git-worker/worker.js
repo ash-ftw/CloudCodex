@@ -368,9 +368,24 @@ async function opPush(userId, projectId, data) {
     }
 
     // Get remote URL
-    const remoteResult = git(['remote', 'get-url', 'origin']);
+    let remoteResult = git(['remote', 'get-url', 'origin']);
     if (remoteResult.exitCode !== 0) {
-        throw new Error('No remote "origin" configured. Please add a remote first.');
+        // Remote missing from git config — try to recover from database
+        const { data: projectData } = await supabase
+            .from('projects')
+            .select('github_url')
+            .eq('id', projectId)
+            .single();
+
+        if (projectData?.github_url) {
+            console.error('Remote "origin" missing from git config but found in database. Auto-adding...');
+            gitOrFail(['remote', 'add', 'origin', projectData.github_url]);
+            remoteResult = git(['remote', 'get-url', 'origin']);
+        }
+
+        if (remoteResult.exitCode !== 0) {
+            throw new Error('No remote "origin" configured. Please add a remote in the "Configure Repository" step first.');
+        }
     }
 
     let remoteUrl = remoteResult.stdout;
@@ -509,7 +524,7 @@ async function opValidate(userId, projectId, data) {
         .single();
     validation.githubAuthenticated = !!(tokenData?.access_token);
 
-    // Check 3: Remote configured?
+    // Check 3: Remote configured? (check both git config and database)
     const { data: projectData } = await supabase
         .from('projects')
         .select('github_url')
@@ -517,7 +532,33 @@ async function opValidate(userId, projectId, data) {
         .eq('id', projectId)
         .single();
 
-    if (projectData?.github_url) {
+    if (validation.gitInitialized) {
+        const gitRemoteResult = git(['remote', 'get-url', 'origin']);
+        if (gitRemoteResult.exitCode === 0 && gitRemoteResult.stdout) {
+            // Git config has the remote
+            validation.remoteConfigured = true;
+            validation.remote = { name: 'origin', url: gitRemoteResult.stdout };
+            // Sync database if it's out of date
+            if (!projectData?.github_url || projectData.github_url !== gitRemoteResult.stdout) {
+                await supabase
+                    .from('projects')
+                    .update({ github_url: gitRemoteResult.stdout })
+                    .eq('id', projectId);
+            }
+        } else if (projectData?.github_url) {
+            // Database has URL but git config doesn't — restore it
+            try {
+                gitOrFail(['remote', 'add', 'origin', projectData.github_url]);
+                await uploadGitFolder(userId, projectId);
+                validation.remoteConfigured = true;
+                validation.remote = { name: 'origin', url: projectData.github_url };
+            } catch (e) {
+                // Failed to restore — mark as not configured
+                validation.remoteConfigured = false;
+            }
+        }
+    } else if (projectData?.github_url) {
+        // Git not initialized but database has URL — still mark as configured
         validation.remoteConfigured = true;
         validation.remote = { name: 'origin', url: projectData.github_url };
     }

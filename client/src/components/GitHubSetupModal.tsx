@@ -227,7 +227,15 @@ export default function GitHubSetupModal({
             onClose();
         } catch (error) {
             console.error('Failed to push:', error);
-            showAlert(`Failed to push: ${(error as Error).message}`);
+            const errorMsg = (error as Error).message;
+            // If remote is missing, guide user back to configure step
+            if (errorMsg.toLowerCase().includes('no remote') || errorMsg.toLowerCase().includes('origin')) {
+                updateValidation({ remoteConfigured: false, remote: undefined });
+                setCurrentStep(3);
+                showAlert('Remote "origin" is not configured. Please add your GitHub repository URL below.', 'error', 'Remote Not Configured');
+            } else {
+                showAlert(`Failed to push: ${errorMsg}`);
+            }
         } finally {
             setLoading(false);
         }

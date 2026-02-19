@@ -215,6 +215,10 @@ export default function EditorPage() {
         const ext = current.name.split('.').pop() || '';
         const languageForExecution = getExecutionLanguage(ext);
 
+        // Clear old execution ID immediately to prevent stale output from previous runs
+        executionIdRef.current = null;
+        setCurrentExecutionId(null);
+
         setConsoleOutput([`> Running ${current.name}...\n`]);
         setIsRunning(true);
 
