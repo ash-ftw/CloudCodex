@@ -332,20 +332,28 @@ export async function downloadProjectZip(
 
 /**
  * Recursively list all files in a project
+ * @param excludeDirs - directory names to skip (e.g. ['.git'])
  */
 export async function listAllFilesRecursive(
     userId: string,
     projectId: string,
-    directory: string
+    directory: string,
+    options?: { excludeDirs?: string[] }
 ): Promise<FileInfo[]> {
     const files = await listFiles(userId, projectId, directory);
     const allFiles: FileInfo[] = [];
+    const excludeDirs = options?.excludeDirs || [];
 
     for (const file of files) {
+        // Skip excluded directories
+        if (file.isDirectory && excludeDirs.includes(file.name)) {
+            continue;
+        }
+
         allFiles.push(file);
 
         if (file.isDirectory) {
-            const subFiles = await listAllFilesRecursive(userId, projectId, file.path);
+            const subFiles = await listAllFilesRecursive(userId, projectId, file.path, options);
             allFiles.push(...subFiles);
         }
     }
