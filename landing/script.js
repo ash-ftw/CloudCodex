@@ -455,5 +455,33 @@
         initShowcaseScene();
         initAnimations();
         initSlider();
+        initBentoGlow();
     });
+
+    // ═══════════ BENTO CARD GLOW FOLLOW MOUSE ═══════════
+    function initBentoGlow() {
+        const cards = document.querySelectorAll('.bento-card');
+        cards.forEach((card) => {
+            card.addEventListener('mousemove', (e) => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left;
+                const y = e.clientY - rect.top;
+                card.style.setProperty('--mouse-x', x + 'px');
+                card.style.setProperty('--mouse-y', y + 'px');
+            });
+        });
+
+        // Animate stat ring on scroll
+        const ring = document.querySelector('.stat-ring-progress');
+        if (ring && typeof ScrollTrigger !== 'undefined') {
+            ScrollTrigger.create({
+                trigger: '.bento-stat-card',
+                start: 'top 85%',
+                once: true,
+                onEnter: () => {
+                    ring.style.strokeDashoffset = '0';
+                },
+            });
+        }
+    }
 })();
