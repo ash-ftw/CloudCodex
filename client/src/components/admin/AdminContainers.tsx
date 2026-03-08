@@ -1,18 +1,21 @@
 import { useEffect, useState } from 'react';
 import { useAdminStore } from '../../store/adminStore';
+import { adminApi } from '../../services/api';
 import {
     Server, Square, RotateCcw, Trash2,
-    RefreshCw, Zap
+    RefreshCw, Zap, Pause, Play, BarChart3
 } from 'lucide-react';
 
 export default function AdminContainers() {
     const {
         containers, isLoading, loadContainers,
-        stopContainer, restartContainer, removeContainer, cleanupContainers
+        stopContainer, restartContainer, removeContainer,
+        pauseContainer, unpauseContainer, cleanupContainers
     } = useAdminStore();
     const [showAll, setShowAll] = useState(false);
     const [showCleanupModal, setShowCleanupModal] = useState(false);
     const [cleanupHours, setCleanupHours] = useState(24);
+    const [liveStats, setLiveStats] = useState<{ id: string; stats: any } | null>(null);
 
     useEffect(() => {
         loadContainers(showAll);
@@ -23,6 +26,15 @@ export default function AdminContainers() {
     const handleCleanup = async () => {
         await cleanupContainers(cleanupHours);
         setShowCleanupModal(false);
+    };
+
+    const handleViewStats = async (containerId: string) => {
+        try {
+            const stats = await adminApi.containerStats(containerId);
+            setLiveStats({ id: containerId, stats });
+        } catch (err) {
+            console.error(err);
+        }
     };
 
     return (
@@ -105,12 +117,37 @@ export default function AdminContainers() {
 
                             <div className="container-actions-admin">
                                 {container.state === 'running' && (
+                                    <>
+                                        <button
+                                            className="btn btn-sm btn-info"
+                                            onClick={() => handleViewStats(container.id)}
+                                            title="Live Stats"
+                                        >
+                                            <BarChart3 size={12} /> Stats
+                                        </button>
+                                        <button
+                                            className="btn btn-sm btn-warning"
+                                            onClick={() => stopContainer(container.id)}
+                                            title="Stop"
+                                        >
+                                            <Square size={12} /> Stop
+                                        </button>
+                                        <button
+                                            className="btn btn-sm btn-secondary"
+                                            onClick={() => pauseContainer(container.id)}
+                                            title="Pause"
+                                        >
+                                            <Pause size={12} /> Pause
+                                        </button>
+                                    </>
+                                )}
+                                {container.state === 'paused' && (
                                     <button
-                                        className="btn btn-sm btn-warning"
-                                        onClick={() => stopContainer(container.id)}
-                                        title="Stop"
+                                        className="btn btn-sm btn-success"
+                                        onClick={() => unpauseContainer(container.id)}
+                                        title="Unpause"
                                     >
-                                        <Square size={12} /> Stop
+                                        <Play size={12} /> Resume
                                     </button>
                                 )}
                                 <button
@@ -152,6 +189,51 @@ export default function AdminContainers() {
                         <div className="modal-actions">
                             <button className="btn btn-secondary" onClick={() => setShowCleanupModal(false)}>Cancel</button>
                             <button className="btn btn-warning" onClick={handleCleanup}>Cleanup</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Live Stats Modal */}
+            {liveStats && (
+                <div className="admin-modal-overlay" onClick={() => setLiveStats(null)}>
+                    <div className="admin-modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-header">
+                            <h3>Container Stats - {liveStats.id}</h3>
+                            <button className="btn-icon" onClick={() => setLiveStats(null)}>&times;</button>
+                        </div>
+                        <div className="container-live-stats">
+                            <div className="detail-row">
+                                <span className="detail-label">CPU Usage</span>
+                                <span className={liveStats.stats.cpuPercent > 80 ? 'text-danger' : ''}>
+                                    {liveStats.stats.cpuPercent.toFixed(2)}%
+                                </span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-label">Memory</span>
+                                <span className={liveStats.stats.memoryPercent > 80 ? 'text-danger' : ''}>
+                                    {liveStats.stats.memoryUsageMb.toFixed(1)} / {liveStats.stats.memoryLimitMb.toFixed(0)} MB
+                                    ({liveStats.stats.memoryPercent.toFixed(1)}%)
+                                </span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-label">Network RX</span>
+                                <span>{liveStats.stats.networkRxMb.toFixed(2)} MB</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-label">Network TX</span>
+                                <span>{liveStats.stats.networkTxMb.toFixed(2)} MB</span>
+                            </div>
+                            <div className="detail-row">
+                                <span className="detail-label">PIDs</span>
+                                <span>{liveStats.stats.pids}</span>
+                            </div>
+                        </div>
+                        <div className="modal-actions">
+                            <button className="btn btn-secondary" onClick={() => handleViewStats(liveStats.id)}>
+                                <RefreshCw size={14} /> Refresh
+                            </button>
+                            <button className="btn btn-secondary" onClick={() => setLiveStats(null)}>Close</button>
                         </div>
                     </div>
                 </div>

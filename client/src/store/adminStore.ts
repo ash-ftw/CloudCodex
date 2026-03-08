@@ -15,6 +15,18 @@ export interface DashboardStats {
         usedMemoryMb: number;
     };
     alerts: AbuseAlert[];
+    recentExecutions: Array<{
+        id: string;
+        language: string;
+        status: string;
+        durationMs: number | null;
+        createdAt: string;
+        username: string;
+    }>;
+    languageBreakdown: Record<string, number>;
+    recentUsers: Array<{ username: string; createdAt: string }>;
+    successRate: number;
+    avgProjectsPerUser: number;
 }
 
 export interface AdminUser {
@@ -125,7 +137,7 @@ export interface Pagination {
 
 // ─── Store Types ─────────────────────────────────────────
 
-type AdminTab = 'overview' | 'users' | 'projects' | 'executions' | 'containers' | 'logs' | 'audit' | 'analytics' | 'settings' | 'alerts';
+type AdminTab = 'overview' | 'users' | 'projects' | 'logs' | 'audit' | 'analytics';
 
 interface AdminState {
     // UI State
@@ -141,6 +153,7 @@ interface AdminState {
     projectsPagination: Pagination | null;
     activeExecutions: ActiveExecution[];
     containers: ContainerInfo[];
+    containersShowAll: boolean;
     executionLogs: any[];
     logsPagination: Pagination | null;
     auditLogs: AuditLogEntry[];
@@ -177,6 +190,8 @@ interface AdminState {
     // Container actions
     stopContainer: (containerId: string) => Promise<void>;
     restartContainer: (containerId: string) => Promise<void>;
+    pauseContainer: (containerId: string) => Promise<void>;
+    unpauseContainer: (containerId: string) => Promise<void>;
     removeContainer: (containerId: string) => Promise<void>;
     cleanupContainers: (maxAgeHours?: number) => Promise<void>;
 
@@ -198,6 +213,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     projectsPagination: null,
     activeExecutions: [],
     containers: [],
+    containersShowAll: false,
     executionLogs: [],
     logsPagination: null,
     auditLogs: [],
@@ -316,7 +332,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
 
     // ── Containers ─────────────────────────────────────
     loadContainers: async (all = false) => {
-        set({ isLoading: true, error: null });
+        set({ isLoading: true, error: null, containersShowAll: all });
         try {
             const data = await adminApi.containers(all);
             set({ containers: data, isLoading: false });
@@ -328,7 +344,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     stopContainer: async (containerId) => {
         try {
             await adminApi.stopContainer(containerId);
-            await get().loadContainers();
+            await get().loadContainers(get().containersShowAll);
         } catch (err: any) {
             set({ error: err.message });
         }
@@ -337,7 +353,25 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     restartContainer: async (containerId) => {
         try {
             await adminApi.restartContainer(containerId);
-            await get().loadContainers();
+            await get().loadContainers(get().containersShowAll);
+        } catch (err: any) {
+            set({ error: err.message });
+        }
+    },
+
+    pauseContainer: async (containerId) => {
+        try {
+            await adminApi.pauseContainer(containerId);
+            await get().loadContainers(get().containersShowAll);
+        } catch (err: any) {
+            set({ error: err.message });
+        }
+    },
+
+    unpauseContainer: async (containerId) => {
+        try {
+            await adminApi.unpauseContainer(containerId);
+            await get().loadContainers(get().containersShowAll);
         } catch (err: any) {
             set({ error: err.message });
         }
@@ -346,7 +380,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     removeContainer: async (containerId) => {
         try {
             await adminApi.removeContainer(containerId);
-            await get().loadContainers();
+            await get().loadContainers(get().containersShowAll);
         } catch (err: any) {
             set({ error: err.message });
         }
@@ -355,7 +389,7 @@ export const useAdminStore = create<AdminState>()((set, get) => ({
     cleanupContainers: async (maxAgeHours = 24) => {
         try {
             await adminApi.cleanupContainers(maxAgeHours);
-            await get().loadContainers();
+            await get().loadContainers(get().containersShowAll);
         } catch (err: any) {
             set({ error: err.message });
         }

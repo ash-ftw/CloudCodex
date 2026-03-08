@@ -6,13 +6,15 @@ import { useProjectStore } from '../store/projectStore';
 import { filesApi, executeApi, projectsApi } from '../services/api';
 import { joinProject, leaveProject, onExecutionOutput, onFileChange, ExecutionOutput } from '../services/socket';
 import {
-    ChevronLeft, Play, Square, Save, FolderTree, Terminal, Settings,
+    ChevronLeft, Play, Square, Save, FolderTree, Terminal,
     ChevronRight, ChevronDown, File, Folder, Plus, X, MoreHorizontal, Keyboard,
     RefreshCw, Loader2, FilePlus, FolderPlus, BookOpen, Code2, HardDrive,
     Zap, Shield, KeyRound
 } from 'lucide-react';
 import { useModal } from '../hooks/useModal';
 import ConfirmModal from '../components/ConfirmModal';
+import SettingsDropdown from '../components/SettingsDropdown';
+import { useThemeStore } from '../store/themeStore';
 import '../styles/editor.css';
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -63,6 +65,7 @@ export default function EditorPage() {
     const [createType, setCreateType] = useState<'file' | 'directory'>('file');
     const [createParentPath, setCreateParentPath] = useState<string>('');
     const [showWelcome, setShowWelcome] = useState(false);
+    const { theme } = useThemeStore();
 
     // Show welcome guidelines on first open of each project (unless globally dismissed)
     useEffect(() => {
@@ -336,9 +339,7 @@ export default function EditorPage() {
                     >
                         <Terminal size={18} />
                     </button>
-                    <button className="btn-icon">
-                        <Settings size={18} />
-                    </button>
+                    <SettingsDropdown />
                 </div>
             </header>
 
@@ -433,7 +434,7 @@ export default function EditorPage() {
                                 language={currentOpenFile.language}
                                 value={currentOpenFile.content}
                                 onChange={(value) => updateFileContent(currentOpenFile.path, value || '')}
-                                theme="vs-dark"
+                                theme={theme === 'light' ? 'vs' : 'vs-dark'}
                                 options={{
                                     fontSize: 14,
                                     fontFamily: "'JetBrains Mono', 'Fira Code', monospace",

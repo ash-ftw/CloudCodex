@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { Github, Mail, Lock, User, ArrowRight, Rocket, Shield, Zap } from 'lucide-react';
+import SettingsDropdown from '../components/SettingsDropdown';
 import '../styles/login.css';
 
 export default function LoginPage() {
@@ -32,6 +33,10 @@ export default function LoginPage() {
 
     return (
         <div className="login-page">
+            <div className="login-settings">
+                <SettingsDropdown />
+            </div>
+
             {/* Animated Background */}
             <div className="login-bg">
                 <div className="gradient-orb orb-1"></div>

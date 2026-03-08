@@ -290,6 +290,9 @@ export const adminApi = {
     containers: (all = false) =>
         apiRequest<any[]>(`/admin/containers?all=${all}`),
 
+    containerStats: (containerId: string) =>
+        apiRequest<any>(`/admin/containers/${containerId}/stats`),
+
     stopContainer: (containerId: string) =>
         apiRequest<any>(`/admin/containers/${containerId}/stop`, { method: 'POST' }),
 

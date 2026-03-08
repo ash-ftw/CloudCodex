@@ -345,12 +345,12 @@
 }
 
 .modal {
-    background: var(--surface-elevated);
+    background: oklch(0.13 0 0);
     border-radius: var(--radius-lg);
     padding: var(--spacing-lg);
     max-width: 480px;
     width: 90%;
-    border: 1px solid var(--border-color);
+    border: 1px solid rgba(255, 255, 255, 0.15);
 }
 
 .modal h3 {
@@ -838,4 +838,89 @@
 .welcome-modal::-webkit-scrollbar-thumb {
     background: var(--border-primary);
     border-radius: 3px;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"] .btn-icon.active {
+    background: oklch(0.92 0 0);
+}
+
+:root[data-theme="light"] .tree-node.active {
+    background: oklch(0.93 0 0);
+}
+
+:root[data-theme="light"] .tree-node:hover {
+    background: oklch(0.95 0 0);
+}
+
+:root[data-theme="light"] .node-menu button:hover {
+    background: oklch(0.92 0 0);
+}
+
+:root[data-theme="light"] .modal-overlay {
+    background: oklch(0 0 0 / 0.4);
+}
+
+:root[data-theme="light"] .modal {
+    background: oklch(1 0 0);
+    border: 1px solid oklch(0.88 0 0);
+    box-shadow: 0 20px 60px oklch(0 0 0 / 0.15);
+}
+
+:root[data-theme="light"] .btn-primary {
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .parent-path-info {
+    background: oklch(0.96 0 0);
+    border-color: oklch(0.90 0 0);
+}
+
+:root[data-theme="light"] .welcome-modal {
+    box-shadow: 0 25px 60px oklch(0 0 0 / 0.12);
+}
+
+:root[data-theme="light"] .welcome-icon {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .import-tab.active {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .run-btn {
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .run-btn.running {
+    background: var(--accent-error);
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .console-output {
+    background: oklch(0.97 0 0);
+    color: oklch(0.15 0 0);
+    border-color: oklch(0.88 0 0);
+}
+
+:root[data-theme="light"] .stdin-textarea {
+    background: oklch(0.97 0 0);
+    color: oklch(0.15 0 0);
+    border-color: oklch(0.88 0 0);
+}
+
+:root[data-theme="light"] .language-chip {
+    color: var(--text-primary);
+    background: oklch(0.94 0 0);
+}
+
+:root[data-theme="light"] .guide-list code {
+    background: oklch(0.94 0 0);
+    color: oklch(0.20 0 0);
+}
+
+:root[data-theme="light"] .shortcut-key {
+    background: oklch(0.94 0 0);
+    color: oklch(0.20 0 0);
+    border-color: oklch(0.85 0 0);
 }

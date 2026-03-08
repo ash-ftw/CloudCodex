@@ -28,7 +28,10 @@ export async function getDashboard(req: AuthenticatedRequest, res: Response, nex
             recentExecResult,
             failedExecResult,
             systemStats,
-            activeAlerts
+            activeAlerts,
+            recentExecs,
+            langBreakdown,
+            recentUsers
         ] = await Promise.all([
             supabaseAdmin.from('profiles').select('*', { count: 'exact', head: true }),
             supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }),
@@ -43,7 +46,18 @@ export async function getDashboard(req: AuthenticatedRequest, res: Response, nex
                 containers: { total: 0, running: 0, paused: 0, stopped: 0 },
                 images: 0, cpuCount: 0, totalMemoryMb: 0, usedMemoryMb: 0
             })),
-            abuseDetectionService.detectAbusePatterns().catch(() => [])
+            abuseDetectionService.detectAbusePatterns().catch(() => []),
+            supabaseAdmin.from('execution_logs')
+                .select('id, language, status, execution_time_ms, created_at, profiles(username)')
+                .order('created_at', { ascending: false })
+                .limit(8),
+            supabaseAdmin.from('execution_logs')
+                .select('language')
+                .gte('created_at', new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()),
+            supabaseAdmin.from('profiles')
+                .select('id, username, created_at')
+                .order('created_at', { ascending: false })
+                .limit(5)
         ]);
 
         // Active users (last 24h)
@@ -51,6 +65,22 @@ export async function getDashboard(req: AuthenticatedRequest, res: Response, nex
             .from('profiles')
             .select('*', { count: 'exact', head: true })
             .gte('last_active_at', new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString());
+
+        // Build language breakdown
+        const langCounts: Record<string, number> = {};
+        for (const log of (langBreakdown.data || []) as any[]) {
+            langCounts[log.language] = (langCounts[log.language] || 0) + 1;
+        }
+
+        // Calculate success rate
+        const totalExecs = totalExecResult.count || 0;
+        const failedExecs = failedExecResult.count || 0;
+        const successRate = totalExecs > 0 ? Math.round(((totalExecs - failedExecs) / totalExecs) * 100) : 100;
+
+        // Avg projects per user
+        const totalUsers = usersResult.count || 0;
+        const totalProjects = projectsResult.count || 0;
+        const avgProjectsPerUser = totalUsers > 0 ? Math.round((totalProjects / totalUsers) * 10) / 10 : 0;
 
         res.json({
             success: true,
@@ -68,7 +98,22 @@ export async function getDashboard(req: AuthenticatedRequest, res: Response, nex
                     failed: failedExecResult.count || 0
                 },
                 system: systemStats,
-                alerts: activeAlerts
+                alerts: activeAlerts,
+                recentExecutions: (recentExecs.data || []).map((e: any) => ({
+                    id: e.id,
+                    language: e.language,
+                    status: e.status,
+                    durationMs: e.execution_time_ms,
+                    createdAt: e.created_at,
+                    username: e.profiles?.username || 'unknown'
+                })),
+                languageBreakdown: langCounts,
+                recentUsers: (recentUsers.data || []).map((u: any) => ({
+                    username: u.username,
+                    createdAt: u.created_at
+                })),
+                successRate,
+                avgProjectsPerUser
             }
         });
     } catch (error) {
@@ -139,8 +184,10 @@ export async function getUsers(req: AuthenticatedRequest, res: Response, next: N
 
         res.json({
             success: true,
-            data: usersWithStats,
-            pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) }
+            data: {
+                data: usersWithStats,
+                pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) }
+            }
         });
     } catch (error) {
         next(error);
@@ -352,8 +399,10 @@ export async function getProjects(req: AuthenticatedRequest, res: Response, next
 
         res.json({
             success: true,
-            data: projects,
-            pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) }
+            data: {
+                data: projects,
+                pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) }
+            }
         });
     } catch (error) {
         next(error);
@@ -594,6 +643,25 @@ export async function getContainers(req: AuthenticatedRequest, res: Response, ne
 }
 
 /**
+ * GET /api/admin/containers/:containerId/stats
+ * Get live stats for a specific container
+ */
+export async function getContainerStats(req: AuthenticatedRequest, res: Response, next: NextFunction) {
+    try {
+        const { containerId } = req.params;
+        const stats = await dockerMonitorService.getContainerStats(containerId);
+
+        if (!stats) {
+            throw new AppError('Container stats not available', 404, 'NOT_FOUND');
+        }
+
+        res.json({ success: true, data: stats });
+    } catch (error) {
+        next(error);
+    }
+}
+
+/**
  * POST /api/admin/containers/:containerId/stop
  */
 export async function stopContainer(req: AuthenticatedRequest, res: Response, next: NextFunction) {
@@ -739,8 +807,10 @@ export async function getExecutionLogsList(req: AuthenticatedRequest, res: Respo
 
         res.json({
             success: true,
-            data: data || [],
-            pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) }
+            data: {
+                data: data || [],
+                pagination: { page, limit, total: count || 0, totalPages: Math.ceil((count || 0) / limit) }
+            }
         });
     } catch (error) {
         next(error);
@@ -763,7 +833,7 @@ export async function getAuditLogs(req: AuthenticatedRequest, res: Response, nex
             limit: parseInt(req.query.limit as string) || 50
         });
 
-        res.json({ success: true, ...result });
+        res.json({ success: true, data: { data: result.data, pagination: result.pagination } });
     } catch (error) {
         next(error);
     }

@@ -400,8 +400,8 @@
 }
 
 .modal {
-    background: var(--bg-secondary);
-    border: 1px solid var(--border-primary);
+    background: oklch(0.13 0 0);
+    border: 1px solid rgba(255, 255, 255, 0.15);
     border-radius: var(--radius-lg);
     padding: var(--spacing-xl);
     width: 100%;
@@ -569,4 +569,84 @@
     color: var(--accent-error);
     margin: 0;
     line-height: 1.5;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"] .logo-small {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .sparkle {
+    color: oklch(0.55 0.15 70) !important;
+}
+
+:root[data-theme="light"] .welcome-section {
+    background: linear-gradient(135deg, oklch(0.94 0 0 / 0.6) 0%, oklch(0.96 0 0 / 0.6) 100%);
+    border: 1px solid oklch(0.88 0 0);
+}
+
+:root[data-theme="light"] .project-card {
+    background: oklch(1 0 0);
+    border-color: oklch(0.88 0 0);
+    box-shadow: 0 2px 8px oklch(0 0 0 / 0.06);
+}
+
+:root[data-theme="light"] .project-card:hover {
+    border-color: oklch(0.78 0 0);
+    box-shadow: 0 4px 16px oklch(0 0 0 / 0.10);
+}
+
+:root[data-theme="light"] .project-card .project-icon {
+    background: oklch(0.94 0 0);
+    color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .modal-overlay {
+    background: oklch(0 0 0 / 0.4);
+}
+
+:root[data-theme="light"] .modal {
+    background: oklch(1 0 0);
+    border: 1px solid oklch(0.88 0 0);
+    box-shadow: 0 20px 60px oklch(0 0 0 / 0.15);
+}
+
+:root[data-theme="light"] .language-option {
+    background: oklch(0.97 0 0);
+    border-color: oklch(0.88 0 0);
+}
+
+:root[data-theme="light"] .language-option:hover {
+    border-color: oklch(0.75 0 0);
+    background: oklch(0.95 0 0);
+}
+
+:root[data-theme="light"] .language-option.active {
+    background: oklch(0.93 0 0);
+    border-color: oklch(0.65 0 0);
+}
+
+:root[data-theme="light"] .info-box {
+    background: oklch(0.96 0 0);
+    border: 1px solid oklch(0.90 0 0);
+    color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .error-box {
+    background: oklch(0.55 0.14 25 / 0.06);
+    border: 1px solid oklch(0.55 0.14 25 / 0.15);
+}
+
+:root[data-theme="light"] .import-option {
+    background: oklch(0.97 0 0);
+    border-color: oklch(0.88 0 0);
+}
+
+:root[data-theme="light"] .import-option:hover {
+    border-color: oklch(0.75 0 0);
+}
+
+:root[data-theme="light"] .import-option.active {
+    background: oklch(0.93 0 0);
+    border-color: oklch(0.65 0 0);
 }

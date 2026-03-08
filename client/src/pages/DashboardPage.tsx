@@ -11,6 +11,7 @@ import {
     ChevronRight, Sparkles, User, Package, Link, AlertTriangle, Lightbulb, Loader
 } from 'lucide-react';
 import GitHubSetupModal from '../components/GitHubSetupModal';
+import SettingsDropdown from '../components/SettingsDropdown';
 import '../styles/dashboard.css';
 import '../styles/github-modal.css';
 
@@ -133,6 +134,8 @@ export default function DashboardPage() {
                             onChange={(e) => setSearchQuery(e.target.value)}
                         />
                     </div>
+
+                    <SettingsDropdown />
 
                     <div className="user-menu">
                         <button

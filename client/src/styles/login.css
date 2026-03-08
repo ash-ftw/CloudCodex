@@ -249,3 +249,53 @@
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
+
+/* Login settings button */
+.login-settings {
+    position: absolute;
+    top: var(--spacing-md);
+    right: var(--spacing-md);
+    z-index: 10;
+}
+
+/* Light theme overrides */
+:root[data-theme="light"] .login-page {
+    background: linear-gradient(135deg, oklch(0.97 0 0) 0%, oklch(0.94 0 0) 100%);
+}
+
+:root[data-theme="light"] .login-form {
+    background: oklch(1 0 0 / 0.9);
+    border: 1px solid oklch(0.88 0 0);
+    box-shadow: 0 8px 30px oklch(0 0 0 / 0.08);
+}
+
+:root[data-theme="light"] .orb-1 {
+    background: linear-gradient(135deg, oklch(0.88 0 0) 0%, oklch(0.92 0 0) 100%);
+}
+
+:root[data-theme="light"] .orb-2 {
+    background: linear-gradient(135deg, oklch(0.82 0 0) 0%, oklch(0.90 0 0) 100%);
+}
+
+:root[data-theme="light"] .orb-3 {
+    background: linear-gradient(135deg, oklch(0.90 0 0) 0%, oklch(0.94 0 0) 100%);
+}
+
+:root[data-theme="light"] .loading-spinner {
+    border-color: oklch(0.20 0 0 / 0.2);
+    border-top-color: oklch(0.20 0 0);
+}
+
+:root[data-theme="light"] .login-header h1 {
+    -webkit-text-fill-color: var(--text-primary);
+}
+
+:root[data-theme="light"] .logo {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .error-message {
+    background: oklch(0.55 0.14 25 / 0.08);
+    border-color: oklch(0.55 0.14 25 / 0.2);
+    color: oklch(0.45 0.14 25);
+}

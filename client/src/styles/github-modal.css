@@ -249,3 +249,74 @@
     background: var(--bg-tertiary);
     color: var(--text-primary);
 }
+
+/* Light theme overrides */
+:root[data-theme="light"] .setup-steps::before {
+    background: oklch(0.88 0 0);
+}
+
+:root[data-theme="light"] .step-indicator {
+    background: oklch(0.96 0 0);
+    border-color: oklch(0.85 0 0);
+}
+
+:root[data-theme="light"] .setup-step.active .step-indicator {
+    background: oklch(0.20 0 0);
+    border-color: oklch(0.20 0 0);
+    box-shadow: 0 0 0 4px oklch(0.20 0 0 / 0.15);
+}
+
+:root[data-theme="light"] .setup-step.completed .step-indicator {
+    background: oklch(0.20 0 0);
+    border-color: oklch(0.20 0 0);
+    box-shadow: 0 0 0 4px oklch(0.20 0 0 / 0.10);
+}
+
+:root[data-theme="light"] .setup-step.completed .step-icon {
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .step-title {
+    color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .setup-step.active .step-title {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .setup-step.completed .step-title {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .step-panel h3 {
+    color: var(--text-primary);
+}
+
+:root[data-theme="light"] .step-panel p {
+    color: var(--text-secondary);
+}
+
+:root[data-theme="light"] .btn-github {
+    background: oklch(0.20 0 0);
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .btn-github:hover {
+    background: oklch(0.25 0 0);
+}
+
+:root[data-theme="light"] .github-modal .step.completed .step-number {
+    background: oklch(0.20 0 0);
+    border-color: oklch(0.20 0 0);
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .github-modal .step.active .step-number {
+    background: oklch(0.20 0 0);
+    border-color: oklch(0.20 0 0);
+    color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .github-modal .code-block {
+    background: oklch(0.94 0 0);
+}

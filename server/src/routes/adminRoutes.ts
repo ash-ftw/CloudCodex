@@ -16,6 +16,7 @@ import {
     killExecution,
     getExecutionLogs,
     getContainers,
+    getContainerStats,
     stopContainer,
     restartContainer,
     removeContainer,
@@ -64,6 +65,7 @@ router.get('/executions/:containerId/logs', getExecutionLogs);
 
 // ── Containers ─────────────────────────────────────────
 router.get('/containers', getContainers);
+router.get('/containers/:containerId/stats', getContainerStats);
 router.post('/containers/:containerId/stop', stopContainer);
 router.post('/containers/:containerId/restart', restartContainer);
 router.post('/containers/:containerId/pause', pauseContainer);

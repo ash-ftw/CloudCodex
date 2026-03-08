@@ -3,6 +3,32 @@ import { config } from '../config/index';
 
 const docker = new Dockerode({ socketPath: config.docker.socket });
 
+// Cache Docker availability to avoid spamming connection attempts when Docker is down
+let dockerAvailable: boolean | null = null;
+let lastDockerCheck = 0;
+const DOCKER_CHECK_INTERVAL_MS = 30_000; // re-check every 30s
+let dockerUnavailableLogged = false;
+
+async function isDockerAvailable(): Promise<boolean> {
+    const now = Date.now();
+    if (dockerAvailable !== null && now - lastDockerCheck < DOCKER_CHECK_INTERVAL_MS) {
+        return dockerAvailable;
+    }
+    try {
+        await docker.ping();
+        dockerAvailable = true;
+        dockerUnavailableLogged = false;
+    } catch {
+        if (!dockerUnavailableLogged) {
+            console.warn('Docker is unavailable (socket not reachable). Will retry in 30s.');
+            dockerUnavailableLogged = true;
+        }
+        dockerAvailable = false;
+    }
+    lastDockerCheck = now;
+    return dockerAvailable;
+}
+
 export interface ContainerInfo {
     id: string;
     name: string;
@@ -50,6 +76,7 @@ export class DockerMonitorService {
      * List all CloudCodeX containers
      */
     async listContainers(all = false): Promise<ContainerInfo[]> {
+        if (!(await isDockerAvailable())) return [];
         try {
             const containers = await docker.listContainers({
                 all,
@@ -80,6 +107,7 @@ export class DockerMonitorService {
      * Get live stats for a specific container
      */
     async getContainerStats(containerId: string): Promise<ContainerStats | null> {
+        if (!(await isDockerAvailable())) return null;
         try {
             const container = docker.getContainer(containerId);
             const stats = await container.stats({ stream: false }) as any;
@@ -107,6 +135,15 @@ export class DockerMonitorService {
      * Get system-level Docker resource stats
      */
     async getSystemStats(): Promise<SystemResourceStats> {
+        if (!(await isDockerAvailable())) {
+            return {
+                containers: { total: 0, running: 0, paused: 0, stopped: 0 },
+                images: 0,
+                cpuCount: 0,
+                totalMemoryMb: 0,
+                usedMemoryMb: 0
+            };
+        }
         try {
             const info = await docker.info();
             const containers = await docker.listContainers({ all: true, filters: { label: ['cloudcodex=true'] } });
@@ -143,6 +180,7 @@ export class DockerMonitorService {
      * Stop a container
      */
     async stopContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+        if (!(await isDockerAvailable())) return { success: false, message: 'Docker is not available' };
         try {
             const container = docker.getContainer(containerId);
             await container.stop({ t: 5 });
@@ -156,6 +194,7 @@ export class DockerMonitorService {
      * Kill a container (force)
      */
     async killContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+        if (!(await isDockerAvailable())) return { success: false, message: 'Docker is not available' };
         try {
             const container = docker.getContainer(containerId);
             await container.kill();
@@ -169,6 +208,7 @@ export class DockerMonitorService {
      * Restart a container
      */
     async restartContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+        if (!(await isDockerAvailable())) return { success: false, message: 'Docker is not available' };
         try {
             const container = docker.getContainer(containerId);
             await container.restart({ t: 5 });
@@ -182,6 +222,7 @@ export class DockerMonitorService {
      * Remove a container (force)
      */
     async removeContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+        if (!(await isDockerAvailable())) return { success: false, message: 'Docker is not available' };
         try {
             const container = docker.getContainer(containerId);
             await container.remove({ force: true, v: true });
@@ -195,6 +236,7 @@ export class DockerMonitorService {
      * Get container logs
      */
     async getContainerLogs(containerId: string, tail = 200): Promise<string> {
+        if (!(await isDockerAvailable())) return 'Docker is not available';
         try {
             const container = docker.getContainer(containerId);
             const logs = await container.logs({
@@ -213,6 +255,7 @@ export class DockerMonitorService {
      * Pause a running container
      */
     async pauseContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+        if (!(await isDockerAvailable())) return { success: false, message: 'Docker is not available' };
         try {
             const container = docker.getContainer(containerId);
             await container.pause();
@@ -226,6 +269,7 @@ export class DockerMonitorService {
      * Unpause a paused container
      */
     async unpauseContainer(containerId: string): Promise<{ success: boolean; message: string }> {
+        if (!(await isDockerAvailable())) return { success: false, message: 'Docker is not available' };
         try {
             const container = docker.getContainer(containerId);
             await container.unpause();

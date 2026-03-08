@@ -4,6 +4,7 @@ import { useAuthStore } from '../store/authStore';
 import { useProfileStore } from '../store/profileStore';
 import ConnectedAccounts from '../components/ConnectedAccounts';
 import { User, Mail, Shield, HardDrive, ArrowLeft, Save, CheckCircle, XCircle } from 'lucide-react';
+import SettingsDropdown from '../components/SettingsDropdown';
 import '../styles/profile.css';
 
 export default function ProfilePage() {
@@ -117,7 +118,10 @@ export default function ProfilePage() {
                         <ArrowLeft size={20} />
                         Back to Dashboard
                     </button>
-                    <h1>Profile Settings</h1>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                        <h1>Profile Settings</h1>
+                        <SettingsDropdown />
+                    </div>
                     <p>Manage your account information and connected services</p>
                 </div>
 

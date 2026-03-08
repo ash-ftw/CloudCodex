@@ -52,10 +52,6 @@ export default function AdminAnalytics() {
                     <span className="analytics-label">Avg. Execution Time</span>
                 </div>
                 <div className="analytics-card">
-                    <span className="analytics-value">{analytics.averageMemoryUsageMb} MB</span>
-                    <span className="analytics-label">Avg. Memory Usage</span>
-                </div>
-                <div className="analytics-card">
                     <span className="analytics-value">{analytics.topUsers.length}</span>
                     <span className="analytics-label">Active Users</span>
                 </div>

@@ -32,6 +32,9 @@
   --shadow-lg: 0 8px 24px oklch(0 0 0 / 0.5);
   --shadow-glow: 0 0 20px oklch(0.269 0 0 / 0.3);
 
+  /* Monaco editor theme */
+  --monaco-theme: vs-dark;
+
   /* Typography */
   --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
@@ -53,6 +56,38 @@
   --transition-fast: 150ms ease;
   --transition-normal: 250ms ease;
   --transition-slow: 400ms ease;
+}
+
+/* Light Theme */
+:root[data-theme="light"] {
+  --bg-primary: oklch(0.97 0 0);
+  --bg-secondary: oklch(0.94 0 0);
+  --bg-tertiary: oklch(0.88 0 0);
+  --bg-hover: oklch(0.84 0 0);
+
+  --text-primary: oklch(0.145 0 0);
+  --text-secondary: oklch(0.37 0 0);
+  --text-muted: oklch(0.50 0 0);
+
+  --accent-primary: oklch(0.20 0 0);
+  --accent-secondary: oklch(0.80 0 0);
+  --accent-success: oklch(0.20 0 0);
+  --accent-warning: oklch(0.45 0 0);
+  --accent-error: oklch(0.50 0.180 25.723);
+
+  --border-primary: oklch(0.82 0 0);
+  --border-secondary: oklch(0.88 0 0);
+
+  --gradient-primary: linear-gradient(135deg, oklch(0.90 0 0) 0%, oklch(0.94 0 0) 100%);
+  --gradient-accent: linear-gradient(135deg, oklch(0.88 0 0) 0%, oklch(0.84 0 0) 100%);
+  --gradient-dark: linear-gradient(180deg, oklch(0.97 0 0) 0%, oklch(0.94 0 0) 100%);
+
+  --shadow-sm: 0 1px 2px oklch(0 0 0 / 0.08);
+  --shadow-md: 0 4px 12px oklch(0 0 0 / 0.10);
+  --shadow-lg: 0 8px 24px oklch(0 0 0 / 0.14);
+  --shadow-glow: 0 0 20px oklch(0.82 0 0 / 0.4);
+
+  --monaco-theme: vs;
 }
 
 /* Reset */
@@ -168,6 +203,16 @@ a:hover {
 .btn-success {
   background: var(--accent-success);
   color: var(--bg-primary);
+}
+
+.btn-warning {
+  background: var(--accent-warning);
+  color: var(--bg-primary);
+}
+
+.btn-info {
+  background: var(--accent-primary);
+  color: oklch(0.985 0 0);
 }
 
 .btn-icon {
@@ -340,6 +385,90 @@ a:hover {
 
 .animate-spin {
   animation: spin 1s linear infinite;
+}
+
+/* Light theme overrides for hardcoded colors */
+:root[data-theme="light"] .btn-primary {
+  color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .btn-danger {
+  color: oklch(0.97 0 0);
+}
+
+:root[data-theme="light"] .btn-danger:hover:not(:disabled) {
+  background: oklch(0.45 0.160 25.723);
+}
+
+:root[data-theme="light"] .input:focus {
+  box-shadow: 0 0 0 3px oklch(0.20 0 0 / 0.12);
+}
+
+:root[data-theme="light"] ::selection {
+  background: oklch(0.20 0 0);
+  color: oklch(0.97 0 0);
+}
+
+/* Settings dropdown */
+.settings-dropdown-wrapper {
+  position: relative;
+}
+
+.settings-dropdown {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  min-width: 200px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 1000;
+  padding: var(--spacing-xs);
+  animation: fadeIn var(--transition-fast);
+}
+
+.settings-dropdown .dropdown-label {
+  padding: var(--spacing-xs) var(--spacing-sm);
+  font-size: 0.65rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-muted);
+}
+
+.settings-dropdown button {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  padding: var(--spacing-sm) var(--spacing-sm);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-dropdown button:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.settings-dropdown button.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+}
+
+.settings-dropdown button .check-icon {
+  margin-left: auto;
+  opacity: 0;
+}
+
+.settings-dropdown button.active .check-icon {
+  opacity: 1;
 }
 
 /* Utility Classes */
