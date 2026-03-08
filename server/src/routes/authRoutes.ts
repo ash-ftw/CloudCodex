@@ -7,6 +7,7 @@ import { authLimiter } from '../middleware/rateLimiter';
 import { AppError } from '../middleware/errorHandler';
 import { AuthenticatedRequest, authMiddleware } from '../middleware/authMiddleware';
 import { getUserWorkspacePath } from '../utils/pathSecurity';
+import { sendWelcomeEmail } from '../services/emailService';
 import fs from 'fs/promises';
 
 const router = Router();
@@ -77,6 +78,9 @@ router.post('/register', async (req, res: Response, next) => {
             config.jwt.secret,
             { expiresIn: '7d' }
         );
+
+        // Send welcome email (fire-and-forget, don't block the response)
+        sendWelcomeEmail(email, username);
 
         res.status(201).json({
             success: true,
