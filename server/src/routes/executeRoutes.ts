@@ -289,14 +289,15 @@ async function executeWithDockerCLI(
         const dockerProcess = spawn('docker', dockerArgs);
         activeExecutions.set(executionId, { process: dockerProcess, userId });
 
-        // Pipe stdin if provided
+        // Pipe stdin if provided, and always close stdin stream
         if (stdin && stdin.trim()) {
             // Ensure stdin ends with newline for scanf/input functions
             const stdinWithNewline = stdin.endsWith('\n') ? stdin : stdin + '\n';
             console.log(`[Execute] Piping stdin: ${JSON.stringify(stdinWithNewline)}`);
             dockerProcess.stdin.write(stdinWithNewline);
-            dockerProcess.stdin.end();
         }
+        // Always close stdin so programs waiting for input get EOF instead of hanging
+        dockerProcess.stdin.end();
 
         // Handle stdout
         dockerProcess.stdout.on('data', (data: Buffer) => {
