@@ -23,7 +23,7 @@ router.use(authMiddleware);
 
 const executeSchema = z.object({
     projectId: z.string().uuid(),
-    filePath: z.string(),
+    filePath: z.string().min(1).transform(s => s.trim()),
     language: z.enum(['c', 'cpp', 'java', 'python', 'javascript', 'go', 'rust', 'php', 'ruby', 'bash']),
     stdin: z.string().optional()
 });
@@ -237,18 +237,19 @@ async function executeWithDockerCLI(
         const fileName = filePath.split('/').pop() || filePath;
         const fileInContainer = `/code/${filePath}`;
 
-        // Build command with actual file path
+        // Build command with actual file path (quote paths for sh -c)
+        const quotedFile = fileInContainer.replace(/'/g, "'\\''");
         let command = '';
         if (langConfig.compileCommand) {
             // Replace placeholder paths in compile command
             const compileCmd = langConfig.compileCommand
-                .replace(/\/code\/main\.[a-z]+/g, fileInContainer)
+                .replace(/\/code\/main\.[a-z]+/g, `'${quotedFile}'`)
                 .replace(/Main\.java/g, fileName);
             const runCmd = langConfig.runCommand;
             command = `${compileCmd} && ${runCmd}`;
         } else {
             // Replace placeholder paths in run command
-            command = langConfig.runCommand.replace(/\/code\/main\.[a-z]+/g, fileInContainer);
+            command = langConfig.runCommand.replace(/\/code\/main\.[a-z]+/g, `'${quotedFile}'`);
         }
 
         // stdin will be piped directly to the Docker process below
