@@ -275,6 +275,7 @@ async function executeWithDockerCLI(
             'run',
             '--rm',
             '-i', // Enable interactive mode for stdin
+            '-e', 'PYTHONUNBUFFERED=1',
             '-v', `${dockerPath}:/code:ro`,
             '-w', '/code',
             '-m', `${memoryMb}m`,

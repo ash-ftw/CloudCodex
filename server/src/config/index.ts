@@ -35,7 +35,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
         name: 'Python',
         extension: '.py',
         dockerImage: 'cloudcodex-python',
-        runCommand: 'python3 /code/main.py',
+        runCommand: 'python3 -u /code/main.py',
         timeout: 30000,
         memoryLimit: '256m'
     },
