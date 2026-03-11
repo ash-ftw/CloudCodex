@@ -32,15 +32,19 @@ const io = new SocketIOServer(httpServer, {
 
 // Security middleware
 app.use(helmet({
-    hsts: false, // Disable HSTS — not using HTTPS
+    hsts: false,
+    crossOriginOpenerPolicy: false,
+    originAgentCluster: false,
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
-            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'"],
-            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+            scriptSrc: ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.jsdelivr.net", "https://cdnjs.cloudflare.com"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://cdn.jsdelivr.net"],
             imgSrc: ["'self'", "data:", "https:", "blob:"],
-            fontSrc: ["'self'", "https://fonts.gstatic.com"],
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "https://cdn.jsdelivr.net"],
+            workerSrc: ["'self'", "blob:"],
             connectSrc: ["'self'", "ws:", "wss:", "https:", "http:"],
+            upgradeInsecureRequests: null,
         }
     }
 }));
