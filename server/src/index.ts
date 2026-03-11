@@ -32,6 +32,7 @@ const io = new SocketIOServer(httpServer, {
 
 // Security middleware
 app.use(helmet({
+    hsts: false, // Disable HSTS — not using HTTPS
     contentSecurityPolicy: {
         directives: {
             defaultSrc: ["'self'"],
@@ -39,7 +40,7 @@ app.use(helmet({
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             imgSrc: ["'self'", "data:", "https:", "blob:"],
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
-            connectSrc: ["'self'", "ws:", "wss:", "https:"],
+            connectSrc: ["'self'", "ws:", "wss:", "https:", "http:"],
         }
     }
 }));
