@@ -91,6 +91,9 @@ export default function EditorPage() {
     // Use ref to track current execution ID to avoid stale closure issues
     const executionIdRef = useRef<string | null>(null);
 
+    // Track in-progress save promise so handleRun can wait for it
+    const savePromiseRef = useRef<Promise<void> | null>(null);
+
     // Load project and files
     useEffect(() => {
         if (!projectId) return;
@@ -178,19 +181,26 @@ export default function EditorPage() {
     };
 
     const handleSave = useCallback(async () => {
-        const current = openFiles.find(f => f.path === activeFile);
+        // Read latest state directly from the store to avoid stale closures
+        const { openFiles: latestOpenFiles, activeFile: latestActiveFile } = useEditorStore.getState();
+        const current = latestOpenFiles.find(f => f.path === latestActiveFile);
         if (!current || !current.isDirty) return;
 
         setIsSaving(true);
-        try {
-            await filesApi.update(projectId!, current.path, current.content);
-            markFileSaved(current.path);
-        } catch (error) {
-            console.error('Failed to save file:', error);
-        } finally {
-            setIsSaving(false);
-        }
-    }, [activeFile, openFiles, projectId, markFileSaved]);
+        const promise = (async () => {
+            try {
+                await filesApi.update(projectId!, current.path, current.content);
+                markFileSaved(current.path);
+            } catch (error) {
+                console.error('Failed to save file:', error);
+            } finally {
+                setIsSaving(false);
+                savePromiseRef.current = null;
+            }
+        })();
+        savePromiseRef.current = promise;
+        await promise;
+    }, [projectId, markFileSaved]);
 
     // Keyboard shortcuts
     useEffect(() => {
@@ -206,10 +216,17 @@ export default function EditorPage() {
     }, [handleSave]);
 
     const handleRun = async () => {
-        const current = openFiles.find(f => f.path === activeFile);
+        // Wait for any in-progress save (e.g. from Ctrl+S) to complete first
+        if (savePromiseRef.current) {
+            await savePromiseRef.current;
+        }
+
+        // Read latest state from store to avoid stale closures
+        const { openFiles: latestOpenFiles, activeFile: latestActiveFile } = useEditorStore.getState();
+        const current = latestOpenFiles.find(f => f.path === latestActiveFile);
         if (!current || !currentProject) return;
 
-        // Save before running
+        // Save before running if dirty
         if (current.isDirty) {
             await handleSave();
         }
