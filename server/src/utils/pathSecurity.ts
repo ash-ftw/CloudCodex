@@ -203,8 +203,8 @@ export async function checkStorageQuota(
     userId: string,
     additionalBytes: number = 0
 ): Promise<{ withinQuota: boolean; usedMb: number; quotaMb: number }> {
-    const userWorkspace = getUserWorkspacePath(userId);
-    const currentSize = await getDirectorySize(userWorkspace);
+    const { getStorageUsage } = await import('../services/storageService.js');
+    const currentSize = await getStorageUsage(userId);
     const totalSizeWithAddition = currentSize + additionalBytes;
 
     const usedMb = Math.round(totalSizeWithAddition / (1024 * 1024) * 100) / 100;

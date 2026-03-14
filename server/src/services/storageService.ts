@@ -388,26 +388,38 @@ export async function deleteProject(
 }
 
 /**
- * Calculate storage usage for a user
+ * Recursively calculate the total size of all files under a storage prefix
  */
-export async function getStorageUsage(userId: string): Promise<number> {
-    const prefix = `${userId}/`;
-
-    const { data: files, error } = await supabaseAdmin.storage
+async function getDirectorySizeRecursive(prefix: string): Promise<number> {
+    const { data: entries, error } = await supabaseAdmin.storage
         .from(BUCKET_NAME)
         .list(prefix, { limit: 10000 });
 
-    if (error) {
+    if (error || !entries) return 0;
+
+    let totalBytes = 0;
+    for (const entry of entries) {
+        const isFolder = entry.id == null || entry.id === '';
+        if (isFolder) {
+            // Recurse into subdirectory
+            totalBytes += await getDirectorySizeRecursive(`${prefix}/${entry.name}`);
+        } else {
+            totalBytes += entry.metadata?.size || 0;
+        }
+    }
+    return totalBytes;
+}
+
+/**
+ * Calculate storage usage for a user (recursively across all projects)
+ */
+export async function getStorageUsage(userId: string): Promise<number> {
+    try {
+        return await getDirectorySizeRecursive(userId);
+    } catch (error) {
         console.error('[Storage] Error calculating storage:', error);
         return 0;
     }
-
-    let totalBytes = 0;
-    for (const file of files || []) {
-        totalBytes += file.metadata?.size || 0;
-    }
-
-    return totalBytes;
 }
 
 /**

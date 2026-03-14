@@ -9,6 +9,7 @@ import path from 'path';
 import fs from 'fs';
 import archiver from 'archiver';
 import { config } from '../config/index';
+import * as storageService from '../services/storageService';
 
 // ================================================================
 // DASHBOARD
@@ -159,9 +160,10 @@ export async function getUsers(req: AuthenticatedRequest, res: Response, next: N
         // Get execution + project counts per user
         const usersWithStats = await Promise.all(
             (users || []).map(async (user: Record<string, unknown>) => {
-                const [execResult, projResult] = await Promise.all([
+                const [execResult, projResult, storageBytes] = await Promise.all([
                     supabaseAdmin.from('execution_logs').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
-                    supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }).eq('user_id', user.id)
+                    supabaseAdmin.from('projects').select('*', { count: 'exact', head: true }).eq('user_id', user.id),
+                    storageService.getStorageUsage(user.id as string)
                 ]);
 
                 return {
@@ -171,7 +173,7 @@ export async function getUsers(req: AuthenticatedRequest, res: Response, next: N
                     role: user.role,
                     status: user.status || 'active',
                     storageQuotaMb: user.storage_quota_mb,
-                    storageUsedMb: user.storage_used_mb,
+                    storageUsedMb: Math.round(storageBytes / (1024 * 1024) * 100) / 100,
                     createdAt: user.created_at,
                     lastActiveAt: user.last_active_at,
                     blockedAt: user.blocked_at,

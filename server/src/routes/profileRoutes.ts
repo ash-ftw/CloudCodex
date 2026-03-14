@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { supabaseAdmin } from '../config/supabase';
 import { AppError } from '../middleware/errorHandler';
 import { AuthenticatedRequest, authMiddleware } from '../middleware/authMiddleware';
+import * as storageService from '../services/storageService';
 
 const router = Router();
 
@@ -40,6 +41,10 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res: Response,
             throw new AppError('Failed to fetch connected accounts', 500, 'FETCH_FAILED');
         }
 
+        // Calculate live storage from cloud
+        const storageBytes = await storageService.getStorageUsage(userId);
+        const storageMb = Math.round(storageBytes / (1024 * 1024) * 100) / 100;
+
         res.json({
             success: true,
             data: {
@@ -48,7 +53,7 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res: Response,
                     username: profile.username,
                     role: profile.role,
                     storage_quota_mb: profile.storage_quota_mb,
-                    storage_used_mb: profile.storage_used_mb,
+                    storage_used_mb: storageMb,
                     created_at: profile.created_at
                 },
                 connectedAccounts: connectedAccounts || []
