@@ -1,7 +1,8 @@
 FROM node:20-alpine
 LABEL cloudcodex=true
 
-RUN adduser -D codeuser && \
+RUN npm install -g tsx && \
+    adduser -D codeuser && \
     mkdir /code && \
     chown codeuser:codeuser /code
 

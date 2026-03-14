@@ -55,6 +55,7 @@ export type SupportedLanguage =
     | 'java'
     | 'python'
     | 'javascript'
+    | 'typescript'
     | 'go'
     | 'rust'
     | 'php'

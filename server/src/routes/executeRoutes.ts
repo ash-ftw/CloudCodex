@@ -24,7 +24,7 @@ router.use(authMiddleware);
 const executeSchema = z.object({
     projectId: z.string().uuid(),
     filePath: z.string().min(1).transform(s => s.trim()),
-    language: z.enum(['c', 'cpp', 'java', 'python', 'javascript', 'go', 'rust', 'php', 'ruby', 'bash']),
+    language: z.enum(['c', 'cpp', 'java', 'python', 'javascript', 'typescript', 'go', 'rust', 'php', 'ruby', 'bash']),
     stdin: z.string().optional()
 });
 
@@ -236,6 +236,8 @@ async function executeWithDockerCLI(
         // Get the actual filename from the path
         const fileName = filePath.split('/').pop() || filePath;
         const fileInContainer = `/code/${filePath}`;
+        // Extract class name from filename (e.g., "AddNumbers.java" -> "AddNumbers")
+        const className = fileName.replace(/\.[^.]+$/, '');
 
         // Build command with actual file path (quote paths for sh -c)
         const quotedFile = fileInContainer.replace(/'/g, "'\\''");
@@ -245,7 +247,9 @@ async function executeWithDockerCLI(
             const compileCmd = langConfig.compileCommand
                 .replace(/\/code\/main\.[a-z]+/g, `'${quotedFile}'`)
                 .replace(/Main\.java/g, fileName);
-            const runCmd = langConfig.runCommand;
+            // Replace hardcoded class name in run command (e.g., "Main" -> "AddNumbers")
+            const runCmd = langConfig.runCommand
+                .replace(/\bMain\b/g, className);
             command = `${compileCmd} && ${runCmd}`;
         } else {
             // Replace placeholder paths in run command

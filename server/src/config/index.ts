@@ -47,6 +47,14 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
         timeout: 30000,
         memoryLimit: '256m'
     },
+    typescript: {
+        name: 'TypeScript',
+        extension: '.ts',
+        dockerImage: 'cloudcodex-javascript',
+        runCommand: 'tsx /code/main.ts',
+        timeout: 30000,
+        memoryLimit: '256m'
+    },
     go: {
         name: 'Go',
         extension: '.go',

@@ -862,7 +862,7 @@ function getExecutionLanguage(ext: string): string {
     const execMap: Record<string, string> = {
         py: 'python',
         js: 'javascript',
-        ts: 'javascript', // Execute TS as JS for node
+        ts: 'typescript',
         java: 'java',
         c: 'c',
         cpp: 'cpp',
