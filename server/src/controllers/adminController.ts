@@ -326,7 +326,23 @@ export async function deleteUser(req: AuthenticatedRequest, res: Response, next:
             throw new AppError('Cannot delete yourself', 400, 'INVALID_OPERATION');
         }
 
-        // Delete from profiles (cascades to projects, logs, etc.)
+        // Delete dependent records that lack ON DELETE CASCADE
+        await supabaseAdmin.from('execution_logs').delete().eq('user_id', userId);
+        await supabaseAdmin.from('audit_logs').delete().eq('performed_by', userId);
+
+        // Delete user's cloud storage files
+        try {
+            const { data: projects } = await supabaseAdmin
+                .from('projects')
+                .select('id')
+                .eq('user_id', userId);
+
+            for (const project of projects || []) {
+                await storageService.deleteProject(userId, project.id);
+            }
+        } catch (_) { /* storage cleanup is best-effort */ }
+
+        // Delete from profiles (cascades to projects, connected_accounts, etc.)
         const { error } = await supabaseAdmin
             .from('profiles')
             .delete()
