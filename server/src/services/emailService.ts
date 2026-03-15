@@ -40,7 +40,7 @@ function buildWelcomeEmail(username: string): { subject: string; html: string } 
                     <li>Connect your GitHub account to push and pull repos</li>
                     <li>Share projects and collaborate in real time</li>
                 </ul>
-                <a href="${escapeHtml(config.frontend.url)}" class="btn">Open CloudCodeX</a>
+                <a href="${escapeHtml(config.frontend.url)}" style="display:inline-block;background:#4f46e5;color:#ffffff !important;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px;">Open CloudCodeX</a>
                 <p style="margin-top: 24px;">Happy coding!<br/>The CloudCodeX Team</p>
             </div>
             <div class="footer">
@@ -115,7 +115,7 @@ function buildLoginEmail(username: string): { subject: string; html: string } {
                 <div class="info-box">
                     <p><strong>Time:</strong> ${escapeHtml(loginTime)}</p>
                 </div>
-                <a href="${escapeHtml(config.frontend.url)}" class="btn">Open CloudCodeX</a>
+                <a href="${escapeHtml(config.frontend.url)}" style="display:inline-block;background:#4f46e5;color:#ffffff !important;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px;">Open CloudCodeX</a>
                 <p class="warning">If this wasn't you, please change your password immediately or contact our support team.</p>
             </div>
             <div class="footer">
