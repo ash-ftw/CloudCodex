@@ -7,7 +7,7 @@ import { authLimiter } from '../middleware/rateLimiter';
 import { AppError } from '../middleware/errorHandler';
 import { AuthenticatedRequest, authMiddleware } from '../middleware/authMiddleware';
 import { getUserWorkspacePath } from '../utils/pathSecurity';
-import { sendWelcomeEmail } from '../services/emailService';
+import { sendWelcomeEmail, sendLoginEmail } from '../services/emailService';
 import fs from 'fs/promises';
 
 const router = Router();
@@ -141,6 +141,9 @@ router.post('/login', async (req, res: Response, next) => {
             config.jwt.secret,
             { expiresIn: '7d' }
         );
+
+        // Send login notification email (fire-and-forget)
+        sendLoginEmail(email, profile?.username || email.split('@')[0]);
 
         res.json({
             success: true,
@@ -381,6 +384,13 @@ router.get('/github/callback', async (req, res: Response, next) => {
             await fs.mkdir(`${workspacePath}/projects`, { recursive: true });
         }
 
+        // Send appropriate email (fire-and-forget)
+        if (existingUser) {
+            sendLoginEmail(githubUser.email || '', githubUser.login);
+        } else {
+            sendWelcomeEmail(githubUser.email || '', githubUser.login);
+        }
+
         // Generate JWT
         const token = jwt.sign(
             { sub: userId, email: githubUser.email },
@@ -602,6 +612,9 @@ router.get('/google/callback', async (req, res: Response, next) => {
                 })
                 .eq('user_id', userId)
                 .eq('provider', 'google');
+
+            // Send login notification for existing Google user (fire-and-forget)
+            sendLoginEmail(googleUser.email, googleUser.name || googleUser.email.split('@')[0]);
         } else {
             // Create new user via Supabase auth
             const tempPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
@@ -644,6 +657,9 @@ router.get('/google/callback', async (req, res: Response, next) => {
             // Create workspace
             const workspacePath = getUserWorkspacePath(userId);
             await fs.mkdir(`${workspacePath}/projects`, { recursive: true });
+
+            // Send welcome email for new Google user (fire-and-forget)
+            sendWelcomeEmail(googleUser.email, googleUser.given_name || googleUser.name.split(' ')[0]);
         }
 
         // Generate JWT
