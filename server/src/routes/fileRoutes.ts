@@ -159,14 +159,17 @@ router.post('/:projectId/create/*', async (req: AuthenticatedRequest, res: Respo
             await storageService.uploadFile(userId, projectId, relativePath, buffer);
         }
 
-        // Update storage usage in database
-        const storageUsage = await storageService.getStorageUsage(userId);
-        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-
-        await supabaseAdmin
-            .from('profiles')
-            .update({ storage_used_mb: usageMb })
-            .eq('id', userId);
+        // Update storage usage in database (skip on error to avoid resetting to 0)
+        try {
+            const storageUsage = await storageService.getStorageUsage(userId);
+            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+            await supabaseAdmin
+                .from('profiles')
+                .update({ storage_used_mb: usageMb })
+                .eq('id', userId);
+        } catch (e) {
+            console.error('[Files] Failed to update storage usage, skipping DB update:', e);
+        }
 
         // Emit file change event
         const io = req.app.get('io');
@@ -216,14 +219,17 @@ router.put('/:projectId/content/*', async (req: AuthenticatedRequest, res: Respo
         const buffer = Buffer.from(content, 'utf-8');
         await storageService.uploadFile(userId, projectId, relativePath, buffer);
 
-        // Update storage usage in database
-        const storageUsage = await storageService.getStorageUsage(userId);
-        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-
-        await supabaseAdmin
-            .from('profiles')
-            .update({ storage_used_mb: usageMb })
-            .eq('id', userId);
+        // Update storage usage in database (skip on error to avoid resetting to 0)
+        try {
+            const storageUsage = await storageService.getStorageUsage(userId);
+            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+            await supabaseAdmin
+                .from('profiles')
+                .update({ storage_used_mb: usageMb })
+                .eq('id', userId);
+        } catch (e) {
+            console.error('[Files] Failed to update storage usage, skipping DB update:', e);
+        }
 
         // Emit file change event
         const io = req.app.get('io');
@@ -325,14 +331,17 @@ router.delete('/:projectId/*', async (req: AuthenticatedRequest, res: Response, 
             await storageService.deleteFile(userId, projectId, relativePath);
         }
 
-        // Update storage usage in database
-        const storageUsage = await storageService.getStorageUsage(userId);
-        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-
-        await supabaseAdmin
-            .from('profiles')
-            .update({ storage_used_mb: usageMb })
-            .eq('id', userId);
+        // Update storage usage in database (skip on error to avoid resetting to 0)
+        try {
+            const storageUsage = await storageService.getStorageUsage(userId);
+            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+            await supabaseAdmin
+                .from('profiles')
+                .update({ storage_used_mb: usageMb })
+                .eq('id', userId);
+        } catch (e) {
+            console.error('[Files] Failed to update storage usage, skipping DB update:', e);
+        }
 
         // Emit file change event
         const io = req.app.get('io');

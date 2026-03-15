@@ -66,14 +66,17 @@ router.post('/:projectId/import', upload.single('file'), async (req: Authenticat
         // Upload ZIP to cloud storage and extract
         await storageService.uploadProjectZip(userId, projectId, req.file.buffer);
 
-        // Update storage usage in database
-        const storageUsage = await storageService.getStorageUsage(userId);
-        const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-
-        await supabaseAdmin
-            .from('profiles')
-            .update({ storage_used_mb: usageMb })
-            .eq('id', userId);
+        // Update storage usage in database (skip on error to avoid resetting to 0)
+        try {
+            const storageUsage = await storageService.getStorageUsage(userId);
+            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
+            await supabaseAdmin
+                .from('profiles')
+                .update({ storage_used_mb: usageMb })
+                .eq('id', userId);
+        } catch (e) {
+            console.error('[ZIP] Failed to update storage usage, skipping DB update:', e);
+        }
 
         res.json({
             success: true,

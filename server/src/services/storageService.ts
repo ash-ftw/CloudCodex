@@ -411,14 +411,22 @@ async function getDirectorySizeRecursive(prefix: string): Promise<number> {
 }
 
 /**
- * Calculate storage usage for a user (recursively across all projects)
+ * Calculate storage usage for a user (recursively across all projects).
+ * Throws on error — callers must handle failures to avoid writing 0 to the DB.
  */
 export async function getStorageUsage(userId: string): Promise<number> {
+    return await getDirectorySizeRecursive(userId);
+}
+
+/**
+ * Safe version: returns null on error instead of a misleading 0.
+ */
+export async function getStorageUsageSafe(userId: string): Promise<number | null> {
     try {
         return await getDirectorySizeRecursive(userId);
     } catch (error) {
         console.error('[Storage] Error calculating storage:', error);
-        return 0;
+        return null;
     }
 }
 

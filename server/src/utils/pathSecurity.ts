@@ -203,18 +203,27 @@ export async function checkStorageQuota(
     userId: string,
     additionalBytes: number = 0
 ): Promise<{ withinQuota: boolean; usedMb: number; quotaMb: number }> {
-    const { getStorageUsage } = await import('../services/storageService.js');
-    const currentSize = await getStorageUsage(userId);
-    const totalSizeWithAddition = currentSize + additionalBytes;
-
-    const usedMb = Math.round(totalSizeWithAddition / (1024 * 1024) * 100) / 100;
     const quotaMb = config.workspace.maxStoragePerUserMb;
 
-    return {
-        withinQuota: usedMb <= quotaMb,
-        usedMb,
-        quotaMb
-    };
+    try {
+        const { getStorageUsage } = await import('../services/storageService.js');
+        const currentSize = await getStorageUsage(userId);
+        const totalSizeWithAddition = currentSize + additionalBytes;
+        const usedMb = Math.round(totalSizeWithAddition / (1024 * 1024) * 100) / 100;
+
+        return {
+            withinQuota: usedMb <= quotaMb,
+            usedMb,
+            quotaMb
+        };
+    } catch (error) {
+        console.error('[Storage] Failed to calculate quota, allowing operation:', error);
+        return {
+            withinQuota: true,
+            usedMb: 0,
+            quotaMb
+        };
+    }
 }
 
 /**

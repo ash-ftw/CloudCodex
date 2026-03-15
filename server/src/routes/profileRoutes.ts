@@ -41,9 +41,14 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res: Response,
             throw new AppError('Failed to fetch connected accounts', 500, 'FETCH_FAILED');
         }
 
-        // Calculate live storage from cloud
-        const storageBytes = await storageService.getStorageUsage(userId);
-        const storageMb = Math.round(storageBytes / (1024 * 1024) * 100) / 100;
+        // Calculate live storage from cloud (fall back to DB value on error)
+        let storageMb = profile.storage_used_mb || 0;
+        try {
+            const storageBytes = await storageService.getStorageUsage(userId);
+            storageMb = Math.round(storageBytes / (1024 * 1024) * 100) / 100;
+        } catch (e) {
+            console.error('[Profile] Failed to calculate live storage, using DB value:', e);
+        }
 
         res.json({
             success: true,
