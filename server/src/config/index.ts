@@ -1,5 +1,20 @@
 import dotenv from 'dotenv';
-dotenv.config();
+import fs from 'fs';
+import path from 'path';
+
+const envCandidates = [
+    process.env.ENV_FILE,
+    path.resolve(process.cwd(), '.env'),
+    path.resolve(process.cwd(), 'server/.env'),
+    path.resolve(__dirname, '../../.env')
+].filter((p): p is string => !!p);
+
+for (const envPath of envCandidates) {
+    if (fs.existsSync(envPath)) {
+        dotenv.config({ path: envPath });
+        break;
+    }
+}
 
 import { LanguageConfig, SupportedLanguage } from '../types/index';
 
