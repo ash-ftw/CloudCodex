@@ -13,7 +13,7 @@ import { config } from '../config';
  * The server never runs git locally — all git operations happen inside Docker.
  */
 
-const GIT_WORKER_IMAGE = 'cloudcodex-git-worker';
+const GIT_WORKER_IMAGE = process.env.DOCKER_IMAGE_GIT_WORKER || process.env.DOCKER_IMAGE_GITWORKER || 'cloudcodex-git-worker';
 const GIT_OPERATION_TIMEOUT = 120_000; // 2 minutes
 const MEMORY_LIMIT = '512m';
 

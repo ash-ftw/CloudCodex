@@ -3,11 +3,31 @@ dotenv.config();
 
 import { LanguageConfig, SupportedLanguage } from '../types/index';
 
+function envOrDefault(keys: string[], fallback: string): string {
+    for (const key of keys) {
+        const value = process.env[key];
+        if (value && value.trim().length > 0) {
+            return value.trim();
+        }
+    }
+    return fallback;
+}
+
+const imageCcpp = envOrDefault(['DOCKER_IMAGE_C_CPP', 'DOCKER_IMAGE_CPP'], 'cloudcodex-c-cpp');
+const imageJava = envOrDefault(['DOCKER_IMAGE_JAVA'], 'cloudcodex-java');
+const imagePython = envOrDefault(['DOCKER_IMAGE_PYTHON'], 'cloudcodex-python');
+const imageJs = envOrDefault(['DOCKER_IMAGE_JAVASCRIPT', 'DOCKER_IMAGE_NODEJS'], 'cloudcodex-javascript');
+const imageGo = envOrDefault(['DOCKER_IMAGE_GO'], 'cloudcodex-go');
+const imageRust = envOrDefault(['DOCKER_IMAGE_RUST'], 'cloudcodex-rust');
+const imagePhp = envOrDefault(['DOCKER_IMAGE_PHP'], 'cloudcodex-php');
+const imageRuby = envOrDefault(['DOCKER_IMAGE_RUBY'], 'cloudcodex-ruby');
+const imageBash = envOrDefault(['DOCKER_IMAGE_BASH'], 'cloudcodex-bash');
+
 export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     c: {
         name: 'C',
         extension: '.c',
-        dockerImage: 'cloudcodex-c-cpp',
+        dockerImage: imageCcpp,
         compileCommand: 'gcc -o /tmp/program /code/main.c',
         runCommand: '/tmp/program',
         timeout: 30000,
@@ -16,7 +36,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     cpp: {
         name: 'C++',
         extension: '.cpp',
-        dockerImage: 'cloudcodex-c-cpp',
+        dockerImage: imageCcpp,
         compileCommand: 'g++ -o /tmp/program /code/main.cpp',
         runCommand: '/tmp/program',
         timeout: 30000,
@@ -25,7 +45,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     java: {
         name: 'Java',
         extension: '.java',
-        dockerImage: 'cloudcodex-java',
+        dockerImage: imageJava,
         compileCommand: 'javac -d /tmp /code/Main.java',
         runCommand: 'java -cp /tmp Main',
         timeout: 30000,
@@ -34,7 +54,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     python: {
         name: 'Python',
         extension: '.py',
-        dockerImage: 'cloudcodex-python',
+        dockerImage: imagePython,
         runCommand: 'python3 -u /code/main.py',
         timeout: 30000,
         memoryLimit: '256m'
@@ -42,7 +62,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     javascript: {
         name: 'JavaScript',
         extension: '.js',
-        dockerImage: 'cloudcodex-javascript',
+        dockerImage: imageJs,
         runCommand: 'node /code/main.js',
         timeout: 30000,
         memoryLimit: '256m'
@@ -50,7 +70,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     typescript: {
         name: 'TypeScript',
         extension: '.ts',
-        dockerImage: 'cloudcodex-javascript',
+        dockerImage: imageJs,
         runCommand: 'tsx /code/main.ts',
         timeout: 30000,
         memoryLimit: '256m'
@@ -58,7 +78,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     go: {
         name: 'Go',
         extension: '.go',
-        dockerImage: 'cloudcodex-go',
+        dockerImage: imageGo,
         compileCommand: 'go build -o /tmp/program /code/main.go',
         runCommand: '/tmp/program',
         timeout: 30000,
@@ -67,7 +87,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     rust: {
         name: 'Rust',
         extension: '.rs',
-        dockerImage: 'cloudcodex-rust',
+        dockerImage: imageRust,
         compileCommand: 'rustc -o /tmp/program /code/main.rs',
         runCommand: '/tmp/program',
         timeout: 60000,
@@ -76,7 +96,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     php: {
         name: 'PHP',
         extension: '.php',
-        dockerImage: 'cloudcodex-php',
+        dockerImage: imagePhp,
         runCommand: 'php /code/main.php',
         timeout: 30000,
         memoryLimit: '256m'
@@ -84,7 +104,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     ruby: {
         name: 'Ruby',
         extension: '.rb',
-        dockerImage: 'cloudcodex-ruby',
+        dockerImage: imageRuby,
         runCommand: 'ruby /code/main.rb',
         timeout: 30000,
         memoryLimit: '256m'
@@ -92,7 +112,7 @@ export const SUPPORTED_LANGUAGES: Record<SupportedLanguage, LanguageConfig> = {
     bash: {
         name: 'Bash',
         extension: '.sh',
-        dockerImage: 'cloudcodex-bash',
+        dockerImage: imageBash,
         runCommand: 'bash /code/main.sh',
         timeout: 30000,
         memoryLimit: '128m'

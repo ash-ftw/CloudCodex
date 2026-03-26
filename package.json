@@ -8,7 +8,9 @@
         "dev:server": "cd server && npm run dev",
         "dev:client": "cd client && npm run dev",
         "install:all": "npm install && cd server && npm install && cd ../client && npm install",
-        "build": "cd client && npm run build"
+        "build": "cd client && npm run build",
+        "docker:build-images:linux": "bash ./docker/build-images.sh",
+        "docker:build-images:windows": "pwsh ./docker/build-images.ps1"
     },
     "devDependencies": {
         "concurrently": "^8.2.2"

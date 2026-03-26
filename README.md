@@ -31,5 +31,28 @@ This solution is particularly valuable for online coding education platforms, te
 - **Git** (optional, for git integration features)
 
 
+ EC2 / Linux Docker image setup
+
+The execution engine runs commands like `docker run cloudcodex-c-cpp ...`.
+These images are local-only and must be built on the EC2 host before running the server.
+
+From project root:
+
+```bash
+chmod +x docker/build-images.sh
+bash docker/build-images.sh
+docker images | grep cloudcodex
+```
+
+Or using npm:
+
+```bash
+npm run docker:build-images:linux
+```
+
+If you run the backend in Docker Compose, build the language images on the host first,
+because the backend container uses the host Docker daemon via `/var/run/docker.sock`.
+
+
 
 
