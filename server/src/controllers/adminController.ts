@@ -522,23 +522,37 @@ export async function downloadProject(req: AuthenticatedRequest, res: Response, 
 
         const { data: project } = await supabaseAdmin
             .from('projects')
-            .select('name')
+            .select('name, user_id')
             .eq('id', projectId)
             .single();
 
-        const wsPath = path.join(config.workspace.root, projectId);
-        if (!fs.existsSync(wsPath)) {
-            throw new AppError('Project workspace not found', 404, 'NOT_FOUND');
+        if (!project) {
+            throw new AppError('Project not found', 404, 'NOT_FOUND');
         }
 
-        const zipName = `${project?.name || projectId}.zip`;
+        const zipName = `${project.name || projectId}.zip`;
         res.setHeader('Content-Type', 'application/zip');
         res.setHeader('Content-Disposition', `attachment; filename="${zipName}"`);
 
-        const archive = archiver('zip', { zlib: { level: 6 } });
-        archive.pipe(res);
-        archive.directory(wsPath, false);
-        await archive.finalize();
+        // Primary path: project files are stored in cloud storage.
+        try {
+            const zipBuffer = await storageService.downloadProjectZip(project.user_id, projectId);
+            res.setHeader('Content-Length', zipBuffer.length.toString());
+            res.send(zipBuffer);
+        } catch (storageError) {
+            // Backward compatibility: fall back to legacy local workspace path.
+            const wsPath = path.join(config.workspace.root, projectId);
+            if (!fs.existsSync(wsPath)) {
+                throw new AppError('Project workspace not found', 404, 'NOT_FOUND');
+            }
+
+            const archive = archiver('zip', { zlib: { level: 6 } });
+            archive.pipe(res);
+            archive.directory(wsPath, false);
+            await archive.finalize();
+
+            console.warn('[Admin] Falling back to local workspace ZIP export:', storageError);
+        }
 
         await auditService.log({
             action: 'project.download',
