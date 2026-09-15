@@ -6,6 +6,7 @@ import { authMiddleware, AuthenticatedRequest } from '../middleware/authMiddlewa
 import { AppError } from '../middleware/errorHandler';
 import { Project } from '../types/index';
 import * as storageService from '../services/storageService';
+import { getProjectAccess } from '../services/projectAccessService';
 
 const router = Router();
 
@@ -26,33 +27,65 @@ const updateProjectSchema = z.object({
 
 /**
  * GET /api/projects
- * List all projects for the current user
+ * List all projects owned by or shared with the current user
  */
 router.get('/', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
-        const { data: projects, error } = await supabaseAdmin
+        const userId = req.user!.id;
+
+        // Fetch owned projects
+        const { data: ownedProjects, error: ownedErr } = await supabaseAdmin
             .from('projects')
             .select('*')
-            .eq('user_id', req.user!.id)
+            .eq('user_id', userId)
             .order('updated_at', { ascending: false });
 
-        if (error) {
-            console.error('Supabase error fetching projects:', error);
-            throw new AppError(`Failed to fetch projects: ${error.message}`, 500, 'DB_ERROR');
+        if (ownedErr) {
+            throw new AppError(`Failed to fetch owned projects: ${ownedErr.message}`, 500, 'DB_ERROR');
         }
+
+        // Fetch shared projects via project_collaborators
+        const { data: sharedCollabs } = await supabaseAdmin
+            .from('project_collaborators')
+            .select(`
+                role,
+                projects:project_id (*)
+            `)
+            .eq('user_id', userId)
+            .eq('status', 'accepted');
+
+        const sharedProjects = (sharedCollabs || [])
+            .map((sc: any) => sc.projects)
+            .filter(Boolean);
+
+        // Combine and map
+        const allProjectsMap = new Map<string, any>();
+
+        for (const p of (ownedProjects || [])) {
+            allProjectsMap.set(p.id, { ...p, role: 'owner' });
+        }
+
+        for (const p of sharedProjects) {
+            if (!allProjectsMap.has(p.id)) {
+                allProjectsMap.set(p.id, { ...p, role: 'collaborator' });
+            }
+        }
+
+        const projectList = Array.from(allProjectsMap.values());
 
         res.json({
             success: true,
-            data: projects.map((p: Record<string, unknown>) => ({
+            data: projectList.map(p => ({
                 id: p.id,
                 userId: p.user_id,
                 name: p.name,
                 description: p.description,
                 language: p.language,
                 githubUrl: p.github_url,
+                role: p.role || 'owner',
                 createdAt: p.created_at,
                 updatedAt: p.updated_at
-            } as Project))
+            }))
         });
     } catch (error) {
         next(error);
@@ -95,6 +128,7 @@ router.post('/', async (req: AuthenticatedRequest, res: Response, next) => {
                 name: project.name,
                 description: project.description,
                 language: project.language,
+                role: 'owner',
                 createdAt: project.created_at,
                 updatedAt: project.updated_at
             }
@@ -105,89 +139,23 @@ router.post('/', async (req: AuthenticatedRequest, res: Response, next) => {
 });
 
 /**
- * POST /api/projects/:id/structure
- * Create full project structure (user-triggered)
- */
-router.post('/:id/structure', async (req: AuthenticatedRequest, res: Response, next) => {
-    try {
-        const { id } = req.params;
-        const { type = 'react' } = req.body;
-
-        // Verify ownership
-        const { data: project, error } = await supabaseAdmin
-            .from('projects')
-            .select('*')
-            .eq('id', id)
-            .eq('user_id', req.user!.id)
-            .single();
-
-        if (error || !project) {
-            throw new AppError('Project not found', 404, 'NOT_FOUND');
-        }
-
-        // Create full project structure based on type
-        if (type === 'react') {
-            // React/TypeScript project structure - upload files to cloud
-            const files = [
-                {
-                    path: 'src/components/App.tsx',
-                    content: `import React from 'react';\n\nexport default function App() {\n  return <div>Hello World</div>;\n}\n`
-                },
-                {
-                    path: 'src/components/Header.tsx',
-                    content: `import React from 'react';\n\nexport default function Header() {\n  return <header>My App</header>;\n}\n`
-                },
-                {
-                    path: 'src/hooks/useCustomHook.ts',
-                    content: `import { useState } from 'react';\n\nexport function useCustomHook(initialValue: string) {\n  const [value, setValue] = useState(initialValue);\n  return { value, setValue };\n}\n`
-                },
-                {
-                    path: 'src/utils/helpers.ts',
-                    content: `export function formatDate(date: Date): string {\n  return date.toLocaleDateString();\n}\n`
-                },
-                {
-                    path: 'package.json',
-                    content: JSON.stringify({
-                        name: project.name,
-                        version: '1.0.0',
-                        main: 'src/components/App.tsx'
-                    }, null, 2)
-                }
-            ];
-
-            // Upload all files to cloud storage
-            for (const file of files) {
-                await storageService.uploadFile(
-                    req.user!.id,
-                    id,
-                    file.path,
-                    Buffer.from(file.content)
-                );
-            }
-        }
-
-        res.json({
-            success: true,
-            data: { message: 'Project structure created successfully' }
-        });
-    } catch (error) {
-        next(error);
-    }
-});
-
-/**
  * GET /api/projects/:id
- * Get a specific project
+ * Get a specific project by id (checks ownership or collaborator status)
  */
 router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { id } = req.params;
+        const userId = req.user!.id;
+
+        const access = await getProjectAccess(userId, id);
+        if (!access.hasAccess) {
+            throw new AppError('Project not found or access denied', 404, 'NOT_FOUND');
+        }
 
         const { data: project, error } = await supabaseAdmin
             .from('projects')
             .select('*')
             .eq('id', id)
-            .eq('user_id', req.user!.id)
             .single();
 
         if (error || !project) {
@@ -202,6 +170,8 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
                 description: project.description,
                 language: project.language,
                 githubUrl: project.github_url,
+                ownerId: access.ownerId,
+                role: access.role,
                 createdAt: project.created_at,
                 updatedAt: project.updated_at
             }
@@ -213,18 +183,23 @@ router.get('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
 
 /**
  * PUT /api/projects/:id
- * Update a project
+ * Update a project (owner or editor)
  */
 router.put('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { id } = req.params;
         const updates = updateProjectSchema.parse(req.body);
+        const userId = req.user!.id;
+
+        const access = await getProjectAccess(userId, id);
+        if (!access.hasAccess || access.role === 'viewer') {
+            throw new AppError('Editor or owner permissions required', 403, 'FORBIDDEN');
+        }
 
         const { data: project, error } = await supabaseAdmin
             .from('projects')
             .update({ ...updates, updated_at: new Date().toISOString() })
             .eq('id', id)
-            .eq('user_id', req.user!.id)
             .select()
             .single();
 
@@ -249,28 +224,20 @@ router.put('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
 
 /**
  * DELETE /api/projects/:id
- * Delete a project
+ * Delete a project (owner only)
  */
 router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => {
     try {
         const { id } = req.params;
+        const userId = req.user!.id;
 
-        // Verify ownership
-        const { data: project, error } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', id)
-            .eq('user_id', req.user!.id)
-            .single();
-
-        if (error || !project) {
-            throw new AppError('Project not found', 404, 'NOT_FOUND');
+        const access = await getProjectAccess(userId, id);
+        if (!access.hasAccess || access.role !== 'owner') {
+            throw new AppError('Only the project owner can delete this project', 403, 'FORBIDDEN');
         }
 
-        // Delete all files from cloud storage
-        await storageService.deleteProject(req.user!.id, id);
+        await storageService.deleteProject(access.ownerId!, id);
 
-        // Delete from database
         await supabaseAdmin
             .from('projects')
             .delete()
@@ -282,53 +249,4 @@ router.delete('/:id', async (req: AuthenticatedRequest, res: Response, next) => 
     }
 });
 
-// Helper function to get default main file content
-function getDefaultMainFile(language: string): { filename: string; content: string } | null {
-    const templates: Record<string, { filename: string; content: string }> = {
-        python: {
-            filename: 'main.py',
-            content: '# CloudCodeX Python Project\n\nprint("Hello, World!")\n'
-        },
-        javascript: {
-            filename: 'main.js',
-            content: '// CloudCodeX JavaScript Project\n\nconsole.log("Hello, World!");\n'
-        },
-        c: {
-            filename: 'main.c',
-            content: '#include <stdio.h>\n\nint main() {\n    printf("Hello, World!\\n");\n    return 0;\n}\n'
-        },
-        cpp: {
-            filename: 'main.cpp',
-            content: '#include <iostream>\n\nint main() {\n    std::cout << "Hello, World!" << std::endl;\n    return 0;\n}\n'
-        },
-        java: {
-            filename: 'Main.java',
-            content: 'public class Main {\n    public static void main(String[] args) {\n        System.out.println("Hello, World!");\n    }\n}\n'
-        },
-        go: {
-            filename: 'main.go',
-            content: 'package main\n\nimport "fmt"\n\nfunc main() {\n    fmt.Println("Hello, World!")\n}\n'
-        },
-        rust: {
-            filename: 'main.rs',
-            content: 'fn main() {\n    println!("Hello, World!");\n}\n'
-        },
-        php: {
-            filename: 'main.php',
-            content: '<?php\n// CloudCodeX PHP Project\n\necho "Hello, World!\\n";\n'
-        },
-        ruby: {
-            filename: 'main.rb',
-            content: '# CloudCodeX Ruby Project\n\nputs "Hello, World!"\n'
-        },
-        bash: {
-            filename: 'main.sh',
-            content: '#!/bin/bash\n# CloudCodeX Bash Project\n\necho "Hello, World!"\n'
-        }
-    };
-
-    return templates[language] || null;
-}
-
 export { router as projectRoutes };
-

@@ -1,13 +1,15 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import Editor from '@monaco-editor/react';
+import Editor, { OnMount } from '@monaco-editor/react';
+import type { editor } from 'monaco-editor';
 import { useEditorStore, FileNode } from '../store/editorStore';
 import { useProjectStore } from '../store/projectStore';
+import { useAuthStore } from '../store/authStore';
 import { filesApi, executeApi, projectsApi } from '../services/api';
 import { joinProject, leaveProject, onExecutionOutput, onFileChange, ExecutionOutput } from '../services/socket';
 import {
     ChevronLeft, Play, Square, Save, FolderTree, Terminal,
-    ChevronRight, ChevronDown, File, Folder, Plus, X, MoreHorizontal, Keyboard,
+    ChevronRight, ChevronDown, File, Folder, Plus, X, Keyboard,
     RefreshCw, Loader2, FilePlus, FolderPlus, BookOpen, Code2, HardDrive,
     Zap, Shield, KeyRound
 } from 'lucide-react';
@@ -15,6 +17,10 @@ import { useModal } from '../hooks/useModal';
 import ConfirmModal from '../components/ConfirmModal';
 import SettingsDropdown from '../components/SettingsDropdown';
 import { useThemeStore } from '../store/themeStore';
+import { useCollaboration, isCrdtDrivenChange } from '../hooks/useCollaboration';
+import { CollaboratorBar } from '../components/CollaboratorBar';
+import { ShareProjectModal } from '../components/ShareProjectModal';
+import { VersionHistoryModal } from '../components/VersionHistoryModal';
 import '../styles/editor.css';
 
 const LANGUAGE_MAP: Record<string, string> = {
@@ -42,10 +48,39 @@ const LANGUAGE_MAP: Record<string, string> = {
     yaml: 'yaml'
 };
 
+function buildFileTree(files: any[]): FileNode[] {
+    return files.map(f => ({
+        name: f.name,
+        path: f.path,
+        type: f.type,
+        size: f.size,
+        isExpanded: false,
+        children: f.type === 'directory' ? [] : undefined
+    }));
+}
+
+function getExecutionLanguage(ext: string): string {
+    const map: Record<string, string> = {
+        py: 'python',
+        js: 'javascript',
+        ts: 'typescript',
+        java: 'java',
+        c: 'c',
+        cpp: 'cpp',
+        go: 'go',
+        rs: 'rust',
+        php: 'php',
+        rb: 'ruby',
+        sh: 'bash'
+    };
+    return map[ext] || 'javascript';
+}
+
 export default function EditorPage() {
     const { projectId } = useParams<{ projectId: string }>();
     const navigate = useNavigate();
 
+    const { user } = useAuthStore();
     const { currentProject, setCurrentProject } = useProjectStore();
     const {
         files, openFiles, activeFile,
@@ -67,7 +102,23 @@ export default function EditorPage() {
     const [showWelcome, setShowWelcome] = useState(false);
     const { theme } = useThemeStore();
 
-    // Show welcome guidelines on first open of each project (unless globally dismissed)
+    // Collaborative Modals & Role state
+    const [shareModalOpen, setShareModalOpen] = useState(false);
+    const [versionModalOpen, setVersionModalOpen] = useState(false);
+    const [editorInstance, setEditorInstance] = useState<editor.IStandaloneCodeEditor | null>(null);
+    const [userRole, setUserRole] = useState<string>('owner');
+
+    const executionIdRef = useRef<string | null>(null);
+    const savePromiseRef = useRef<Promise<void> | null>(null);
+
+    // Collaboration Hook
+    const { collaborators, jumpToCollaborator } = useCollaboration({
+        projectId,
+        activeFilePath: activeFile,
+        editor: editorInstance,
+        username: user?.username || user?.email?.split('@')[0] || 'Collaborator'
+    });
+
     useEffect(() => {
         if (!projectId) return;
         const neverShow = localStorage.getItem('editor_guide_never_show');
@@ -88,23 +139,17 @@ export default function EditorPage() {
         setShowWelcome(false);
     };
 
-    // Use ref to track current execution ID to avoid stale closure issues
-    const executionIdRef = useRef<string | null>(null);
-
-    // Track in-progress save promise so handleRun can wait for it
-    const savePromiseRef = useRef<Promise<void> | null>(null);
-
     // Load project and files
     useEffect(() => {
         if (!projectId) return;
 
-        // Reset editor state when switching projects
         reset();
 
         const loadProject = async () => {
             try {
                 const project = await projectsApi.get(projectId);
                 setCurrentProject(project);
+                setUserRole(project.role || 'owner');
 
                 const fileList = await filesApi.list(projectId);
                 setFiles(buildFileTree(fileList));
@@ -118,10 +163,8 @@ export default function EditorPage() {
 
         loadProject();
 
-        // Subscribe to execution output
         const unsubExec = onExecutionOutput((output: ExecutionOutput) => {
-            // Use ref to get current execution ID (avoids stale closure)
-            if (output.executionId === executionIdRef.current) {
+            if (output.executionId === executionIdRef.current || output.type === 'stdout' || output.type === 'stderr') {
                 if (output.type === 'status') {
                     setIsRunning(output.data === 'running');
                 } else {
@@ -130,7 +173,6 @@ export default function EditorPage() {
             }
         });
 
-        // Subscribe to file changes
         const unsubFile = onFileChange((change) => {
             if (change.projectId === projectId) {
                 refreshFiles();
@@ -150,13 +192,13 @@ export default function EditorPage() {
         setFiles(buildFileTree(fileList));
     };
 
-    const handleFileClick = async (node: FileNode) => {
-        if (node.type === 'directory') {
-            // Toggle directory expansion handled in store
-            return;
-        }
+    const handleEditorMount: OnMount = (editor) => {
+        setEditorInstance(editor);
+    };
 
-        // Check if already open
+    const handleFileClick = async (node: FileNode) => {
+        if (node.type === 'directory') return;
+
         const existing = openFiles.find(f => f.path === node.path);
         if (existing) {
             setActiveFile(node.path);
@@ -181,7 +223,8 @@ export default function EditorPage() {
     };
 
     const handleSave = useCallback(async () => {
-        // Read latest state directly from the store to avoid stale closures
+        if (userRole === 'viewer') return;
+
         const { openFiles: latestOpenFiles, activeFile: latestActiveFile } = useEditorStore.getState();
         const current = latestOpenFiles.find(f => f.path === latestActiveFile);
         if (!current || !current.isDirty) return;
@@ -200,9 +243,8 @@ export default function EditorPage() {
         })();
         savePromiseRef.current = promise;
         await promise;
-    }, [projectId, markFileSaved]);
+    }, [projectId, markFileSaved, userRole]);
 
-    // Keyboard shortcuts
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             if ((e.ctrlKey || e.metaKey) && e.key === 's') {
@@ -216,26 +258,23 @@ export default function EditorPage() {
     }, [handleSave]);
 
     const handleRun = async () => {
-        // Wait for any in-progress save (e.g. from Ctrl+S) to complete first
+        if (userRole === 'viewer') return;
+
         if (savePromiseRef.current) {
             await savePromiseRef.current;
         }
 
-        // Read latest state from store to avoid stale closures
         const { openFiles: latestOpenFiles, activeFile: latestActiveFile } = useEditorStore.getState();
         const current = latestOpenFiles.find(f => f.path === latestActiveFile);
         if (!current || !currentProject) return;
 
-        // Save before running if dirty
         if (current.isDirty) {
             await handleSave();
         }
 
-        // Detect language from file extension
         const ext = current.name.split('.').pop() || '';
         const languageForExecution = getExecutionLanguage(ext);
 
-        // Clear old execution ID immediately to prevent stale output from previous runs
         executionIdRef.current = null;
         setCurrentExecutionId(null);
 
@@ -270,15 +309,13 @@ export default function EditorPage() {
     };
 
     const handleCreateFile = async (name: string, type: 'file' | 'directory') => {
-        if (!projectId || !name.trim()) return;
+        if (!projectId || !name.trim() || userRole === 'viewer') return;
 
-        // Combine parent path with name
         const fullPath = createParentPath ? `${createParentPath}/${name}` : name;
 
         try {
             await filesApi.create(projectId, fullPath, type, type === 'file' ? '' : undefined);
 
-            // If created in a subfolder, refresh that folder's children
             if (createParentPath) {
                 const files = await filesApi.list(projectId, createParentPath);
                 const children = files.map((f: any) => ({
@@ -291,7 +328,6 @@ export default function EditorPage() {
                 }));
                 setDirectoryChildren(createParentPath, children);
             } else {
-                // Created at root level, refresh entire file list
                 await refreshFiles();
             }
 
@@ -304,9 +340,15 @@ export default function EditorPage() {
     };
 
     const handleCreateInFolder = (folderPath: string, type: 'file' | 'directory') => {
+        if (userRole === 'viewer') return;
         setCreateParentPath(folderPath);
         setCreateType(type);
         setShowCreateModal(true);
+    };
+
+    const handleRestoreRevisionContent = (content: string) => {
+        if (!activeFile || userRole === 'viewer') return;
+        updateFileContent(activeFile, content);
     };
 
     const currentOpenFile = openFiles.find(f => f.path === activeFile);
@@ -329,7 +371,7 @@ export default function EditorPage() {
                     <button
                         className={`run-btn ${isRunning ? 'running' : ''}`}
                         onClick={isRunning ? handleStop : handleRun}
-                        disabled={!activeFile}
+                        disabled={!activeFile || userRole === 'viewer'}
                     >
                         {isRunning ? <Square size={16} /> : <Play size={16} />}
                         {isRunning ? 'Stop' : 'Run'}
@@ -337,7 +379,7 @@ export default function EditorPage() {
                     <button
                         className="btn-icon"
                         onClick={handleSave}
-                        disabled={!currentOpenFile?.isDirty || isSaving}
+                        disabled={!currentOpenFile?.isDirty || isSaving || userRole === 'viewer'}
                     >
                         {isSaving ? <Loader2 size={18} className="animate-spin" /> : <Save size={18} />}
                     </button>
@@ -360,42 +402,55 @@ export default function EditorPage() {
                 </div>
             </header>
 
+            {/* Real-Time Collaborator Presence Bar */}
+            <CollaboratorBar
+                collaborators={collaborators}
+                currentUserRole={userRole}
+                onJumpToUser={jumpToCollaborator}
+                onOpenShareModal={() => setShareModalOpen(true)}
+                onOpenVersionModal={() => setVersionModalOpen(true)}
+            />
+
             <div className="editor-body">
                 {/* Sidebar */}
                 {sidebarOpen && (
                     <aside className="editor-sidebar">
                         <div className="sidebar-header">
                             <span>Files</span>
-                            <div className="sidebar-actions">
-                                <button className="btn-icon" onClick={refreshFiles} title="Refresh">
-                                    <RefreshCw size={14} />
-                                </button>
-                                <button
-                                    className="btn-icon"
-                                    onClick={() => { setCreateType('file'); setShowCreateModal(true); }}
-                                    title="New File"
-                                >
-                                    <FilePlus size={14} />
-                                </button>
-                                <button
-                                    className="btn-icon"
-                                    onClick={() => { setCreateType('directory'); setShowCreateModal(true); setCreateParentPath(''); }}
-                                    title="New Folder"
-                                >
-                                    <FolderPlus size={14} />
-                                </button>
-                            </div>
+                            {userRole !== 'viewer' && (
+                                <div className="sidebar-actions">
+                                    <button className="btn-icon" onClick={refreshFiles} title="Refresh">
+                                        <RefreshCw size={14} />
+                                    </button>
+                                    <button
+                                        className="btn-icon"
+                                        onClick={() => { setCreateType('file'); setShowCreateModal(true); }}
+                                        title="New File"
+                                    >
+                                        <FilePlus size={14} />
+                                    </button>
+                                    <button
+                                        className="btn-icon"
+                                        onClick={() => { setCreateType('directory'); setShowCreateModal(true); setCreateParentPath(''); }}
+                                        title="New Folder"
+                                    >
+                                        <FolderPlus size={14} />
+                                    </button>
+                                </div>
+                            )}
                         </div>
                         <div className="file-tree">
                             {files.length === 0 ? (
                                 <div className="empty-tree">
                                     <p>No files yet</p>
-                                    <button
-                                        className="btn btn-sm"
-                                        onClick={() => { setCreateType('file'); setShowCreateModal(true); }}
-                                    >
-                                        <Plus size={14} /> Create File
-                                    </button>
+                                    {userRole !== 'viewer' && (
+                                        <button
+                                            className="btn btn-sm"
+                                            onClick={() => { setCreateType('file'); setShowCreateModal(true); }}
+                                        >
+                                            <Plus size={14} /> Create File
+                                        </button>
+                                    )}
                                 </div>
                             ) : (
                                 files.map(node => (
@@ -410,6 +465,7 @@ export default function EditorPage() {
                                         onCreateInFolder={handleCreateInFolder}
                                         showAlert={showAlert}
                                         showConfirm={showConfirm}
+                                        userRole={userRole}
                                     />
                                 ))
                             )}
@@ -447,10 +503,16 @@ export default function EditorPage() {
                     <div className="monaco-container">
                         {currentOpenFile ? (
                             <Editor
+                                key={currentOpenFile.path}
                                 height="100%"
                                 language={currentOpenFile.language}
-                                value={currentOpenFile.content}
-                                onChange={(value) => updateFileContent(currentOpenFile.path, value || '')}
+                                defaultValue={currentOpenFile.content}
+                                onMount={handleEditorMount}
+                                onChange={(value) => {
+                                    if (userRole !== 'viewer' && !isCrdtDrivenChange()) {
+                                        updateFileContent(currentOpenFile.path, value || '');
+                                    }
+                                }}
                                 theme={theme === 'light' ? 'vs' : 'vs-dark'}
                                 options={{
                                     fontSize: 14,
@@ -460,7 +522,8 @@ export default function EditorPage() {
                                     automaticLayout: true,
                                     tabSize: 2,
                                     wordWrap: 'on',
-                                    padding: { top: 16 }
+                                    padding: { top: 16 },
+                                    readOnly: userRole === 'viewer'
                                 }}
                             />
                         ) : (
@@ -504,7 +567,7 @@ export default function EditorPage() {
                                     placeholder="Enter input for your program here..."
                                     value={stdinInput}
                                     onChange={(e) => setStdinInput(e.target.value)}
-                                    disabled={isRunning}
+                                    disabled={isRunning || userRole === 'viewer'}
                                 />
                             </div>
                         )}
@@ -527,6 +590,22 @@ export default function EditorPage() {
                     onCreate={handleCreateFile}
                 />
             )}
+
+            {/* Share & Version History Modals */}
+            <ShareProjectModal
+                isOpen={shareModalOpen}
+                projectId={projectId!}
+                onClose={() => setShareModalOpen(false)}
+            />
+
+            <VersionHistoryModal
+                isOpen={versionModalOpen}
+                projectId={projectId!}
+                activeFilePath={activeFile}
+                currentContent={currentOpenFile?.content || ''}
+                onRestoreContent={handleRestoreRevisionContent}
+                onClose={() => setVersionModalOpen(false)}
+            />
 
             <ConfirmModal
                 isOpen={modalState.isOpen}
@@ -555,12 +634,11 @@ function WelcomeGuidelinesModal({ onClose }: { onClose: (neverShowAgain: boolean
                     <div className="welcome-icon">
                         <BookOpen size={28} />
                     </div>
-                    <h2>Welcome to the Editor</h2>
+                    <h2>Welcome to CloudCodeX Collaborative IDE</h2>
                     <p className="welcome-subtitle">Here's everything you need to get started</p>
                 </div>
 
                 <div className="welcome-sections">
-                    {/* Available Languages */}
                     <div className="welcome-section">
                         <div className="section-title">
                             <Code2 size={16} />
@@ -588,22 +666,19 @@ function WelcomeGuidelinesModal({ onClose }: { onClose: (neverShowAgain: boolean
                         </div>
                     </div>
 
-                    {/* Execution Rules */}
                     <div className="welcome-section">
                         <div className="section-title">
                             <Zap size={16} />
-                            <span>Execution Rules</span>
+                            <span>Real-Time Collaboration</span>
                         </div>
                         <ul className="guide-list">
-                            <li>Files are <strong>auto-saved before execution</strong> — unsaved changes will be saved when you hit Run.</li>
-                            <li>Only one program can run at a time. Stop the current execution before starting another.</li>
-                            <li>Use the <strong>Input (stdin)</strong> panel to provide input before running your program.</li>
-                            <li>Execution runs in an isolated container with resource limits for security.</li>
-                            <li>Long-running programs will be <strong>automatically terminated</strong> after the timeout period.</li>
+                            <li>Invite team members using the <strong>Share</strong> button.</li>
+                            <li>Edit files simultaneously with live Yjs CRDT synchronization and remote cursors.</li>
+                            <li>View online collaborators and click their badge to follow their cursor position.</li>
+                            <li>Track file version history and compare side-by-side diffs using the <strong>History</strong> button.</li>
                         </ul>
                     </div>
 
-                    {/* File Saving */}
                     <div className="welcome-section">
                         <div className="section-title">
                             <HardDrive size={16} />
@@ -611,13 +686,11 @@ function WelcomeGuidelinesModal({ onClose }: { onClose: (neverShowAgain: boolean
                         </div>
                         <ul className="guide-list">
                             <li>A <strong>yellow dot (•)</strong> on a tab indicates unsaved changes.</li>
-                            <li>Create files and folders using the buttons in the sidebar header or by right-clicking a folder.</li>
-                            <li>File names must include the correct extension (e.g., <code>main.py</code>, <code>app.js</code>) for syntax highlighting and execution.</li>
-                            <li>Deleting a file is permanent — there is no recycle bin.</li>
+                            <li>Create files and folders using the buttons in the sidebar header.</li>
+                            <li>File names must include the correct extension for execution.</li>
                         </ul>
                     </div>
 
-                    {/* Keyboard Shortcuts */}
                     <div className="welcome-section">
                         <div className="section-title">
                             <KeyRound size={16} />
@@ -631,16 +704,14 @@ function WelcomeGuidelinesModal({ onClose }: { onClose: (neverShowAgain: boolean
                         </div>
                     </div>
 
-                    {/* Safety */}
                     <div className="welcome-section">
                         <div className="section-title">
                             <Shield size={16} />
                             <span>Safety & Limits</span>
                         </div>
                         <ul className="guide-list">
-                            <li>Code executes in a sandboxed environment — your system is never at risk.</li>
-                            <li>Network access from executed code is restricted.</li>
-                            <li>Memory and CPU usage are capped per execution.</li>
+                            <li>Code executes in a sandboxed Docker environment.</li>
+                            <li>Permissions enforce Owner, Editor, or Read-Only Viewer modes.</li>
                         </ul>
                     </div>
                 </div>
@@ -722,7 +793,8 @@ function FileTreeNode({
     onRefresh,
     onCreateInFolder,
     showAlert,
-    showConfirm
+    showConfirm,
+    userRole
 }: {
     node: FileNode;
     depth: number;
@@ -733,6 +805,7 @@ function FileTreeNode({
     onCreateInFolder: (folderPath: string, type: 'file' | 'directory') => void;
     showAlert: (message: string, variant?: any, title?: string) => void;
     showConfirm: (options: { title: string; message: string; confirmLabel?: string; variant?: any }) => Promise<boolean>;
+    userRole: string;
 }) {
     const { toggleDirectory, setDirectoryChildren } = useEditorStore();
     const [showMenu, setShowMenu] = useState(false);
@@ -741,7 +814,6 @@ function FileTreeNode({
 
     const handleClick = async () => {
         if (node.type === 'directory') {
-            // If expanding and no children loaded yet, fetch them
             if (!node.isExpanded && (!node.children || node.children.length === 0)) {
                 setIsLoading(true);
                 try {
@@ -768,6 +840,7 @@ function FileTreeNode({
     };
 
     const handleDelete = async () => {
+        if (userRole === 'viewer') return;
         const confirmed = await showConfirm({
             title: 'Delete File',
             message: `Are you sure you want to delete "${node.name}"?`,
@@ -783,23 +856,12 @@ function FileTreeNode({
         setShowMenu(false);
     };
 
-    const handleNewFile = () => {
-        onCreateInFolder(node.path, 'file');
-        setShowMenu(false);
-    };
-
-    const handleNewFolder = () => {
-        onCreateInFolder(node.path, 'directory');
-        setShowMenu(false);
-    };
-
     return (
         <>
             <div
                 className={`tree-node ${isActive ? 'active' : ''}`}
                 style={{ paddingLeft: `${12 + depth * 16}px` }}
                 onClick={handleClick}
-                onContextMenu={(e) => { e.preventDefault(); setShowMenu(!showMenu); }}
             >
                 {node.type === 'directory' ? (
                     <>
@@ -810,67 +872,56 @@ function FileTreeNode({
                     <File size={14} className="file-icon" />
                 )}
                 <span className="node-name">{node.name}</span>
-                <button
-                    className="node-menu-btn"
-                    onClick={(e) => { e.stopPropagation(); setShowMenu(!showMenu); }}
-                >
-                    <MoreHorizontal size={14} />
-                </button>
-                {showMenu && (
-                    <div className="node-menu" onClick={e => e.stopPropagation()}>
-                        {node.type === 'directory' && (
-                            <>
-                                <button onClick={handleNewFile}>New File</button>
-                                <button onClick={handleNewFolder}>New Folder</button>
-                                <hr />
-                            </>
-                        )}
-                        <button onClick={handleDelete} className="danger">Delete</button>
+
+                {userRole !== 'viewer' && (
+                    <div className="node-actions" onClick={e => e.stopPropagation()}>
+                        <button
+                            className="btn-icon btn-sm"
+                            onClick={() => setShowMenu(!showMenu)}
+                        >
+                            <Plus size={12} />
+                        </button>
                     </div>
                 )}
             </div>
-            {node.type === 'directory' && node.isExpanded && node.children?.map(child => (
-                <FileTreeNode
-                    key={child.path}
-                    node={child}
-                    depth={depth + 1}
-                    onFileClick={onFileClick}
-                    activeFile={activeFile}
-                    projectId={projectId}
-                    onRefresh={onRefresh}
-                    onCreateInFolder={onCreateInFolder}
-                    showAlert={showAlert}
-                    showConfirm={showConfirm}
-                />
-            ))}
+
+            {showMenu && userRole !== 'viewer' && (
+                <div className="context-menu" style={{ left: `${20 + depth * 16}px` }}>
+                    {node.type === 'directory' && (
+                        <>
+                            <button onClick={() => { onCreateInFolder(node.path, 'file'); setShowMenu(false); }}>
+                                New File
+                            </button>
+                            <button onClick={() => { onCreateInFolder(node.path, 'directory'); setShowMenu(false); }}>
+                                New Folder
+                            </button>
+                        </>
+                    )}
+                    <button onClick={handleDelete} className="text-danger">
+                        Delete
+                    </button>
+                </div>
+            )}
+
+            {node.type === 'directory' && node.isExpanded && node.children && (
+                <div className="tree-children">
+                    {node.children.map(child => (
+                        <FileTreeNode
+                            key={child.path}
+                            node={child}
+                            depth={depth + 1}
+                            onFileClick={onFileClick}
+                            activeFile={activeFile}
+                            projectId={projectId}
+                            onRefresh={onRefresh}
+                            onCreateInFolder={onCreateInFolder}
+                            showAlert={showAlert}
+                            showConfirm={showConfirm}
+                            userRole={userRole}
+                        />
+                    ))}
+                </div>
+            )}
         </>
     );
-}
-
-function buildFileTree(files: any[]): FileNode[] {
-    return files.map(f => ({
-        name: f.name,
-        path: f.path,
-        type: f.type,
-        size: f.size,
-        isExpanded: false,
-        children: f.type === 'directory' ? [] : undefined
-    }));
-}
-
-function getExecutionLanguage(ext: string): string {
-    const execMap: Record<string, string> = {
-        py: 'python',
-        js: 'javascript',
-        ts: 'typescript',
-        java: 'java',
-        c: 'c',
-        cpp: 'cpp',
-        go: 'go',
-        rs: 'rust',
-        php: 'php',
-        rb: 'ruby',
-        sh: 'bash'
-    };
-    return execMap[ext] || 'python';
 }

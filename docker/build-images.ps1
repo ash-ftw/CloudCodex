@@ -1,6 +1,8 @@
 #!/usr/bin/env pwsh
 # Build all CloudCodeX Docker images
 
+Set-Location $PSScriptRoot
+
 Write-Host "Building CloudCodeX Docker images..." -ForegroundColor Cyan
 
 $images = @(

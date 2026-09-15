@@ -26,7 +26,7 @@ const registerSchema = z.object({
 
 /**
  * POST /api/auth/register
- * Register a new user
+ * Register a new user with auto-confirmed email via Supabase Admin
  */
 router.post('/register', async (req, res: Response, next) => {
     try {
@@ -36,27 +36,42 @@ router.post('/register', async (req, res: Response, next) => {
         console.log('Email:', email);
         console.log('Username:', username);
 
-        // Register with Supabase Auth
-        const { data, error } = await supabase.auth.signUp({
+        // Check if username is already taken
+        const { data: existingProfile } = await supabaseAdmin
+            .from('profiles')
+            .select('id')
+            .eq('username', username)
+            .maybeSingle();
+
+        if (existingProfile) {
+            throw new AppError('Username is already taken', 400, 'USERNAME_TAKEN');
+        }
+
+        // Register user via Supabase Admin API with auto email_confirm = true
+        const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
             email,
-            password
+            password,
+            email_confirm: true,
+            user_metadata: { username }
         });
 
-        console.log('Supabase signUp result:', { hasUser: !!data?.user, hasSession: !!data?.session, error: error?.message });
+        console.log('Supabase admin createUser result:', { hasUser: !!newUser?.user, error: error?.message });
 
         if (error) {
             throw new AppError(error.message, 400, 'REGISTRATION_FAILED');
         }
 
-        if (!data.user) {
+        if (!newUser.user) {
             throw new AppError('Registration failed', 400, 'REGISTRATION_FAILED');
         }
 
-        // Create profile (use upsert in case trigger already created it)
+        const userId = newUser.user.id;
+
+        // Upsert user profile
         const { error: profileError } = await supabaseAdmin
             .from('profiles')
             .upsert({
-                id: data.user.id,
+                id: userId,
                 username,
                 role: 'user',
                 storage_quota_mb: 500,
@@ -69,26 +84,27 @@ router.post('/register', async (req, res: Response, next) => {
         }
 
         // Create user workspace directory
-        const workspacePath = getUserWorkspacePath(data.user.id);
+        const workspacePath = getUserWorkspacePath(userId);
         await fs.mkdir(`${workspacePath}/projects`, { recursive: true });
 
         // Generate JWT
         const token = jwt.sign(
-            { sub: data.user.id, email: data.user.email },
+            { sub: userId, email: newUser.user.email },
             config.jwt.secret,
             { expiresIn: '7d' }
         );
 
-        // Send welcome email (fire-and-forget, don't block the response)
+        // Send welcome email (fire-and-forget)
         sendWelcomeEmail(email, username);
 
         res.status(201).json({
             success: true,
             data: {
                 user: {
-                    id: data.user.id,
-                    email: data.user.email,
-                    username
+                    id: userId,
+                    email: newUser.user.email,
+                    username,
+                    role: 'user'
                 },
                 token
             }
@@ -100,7 +116,7 @@ router.post('/register', async (req, res: Response, next) => {
 
 /**
  * POST /api/auth/login
- * Login with email and password
+ * Login with email and password (with auto-confirm fallback for legacy unconfirmed users)
  */
 router.post('/login', async (req, res: Response, next) => {
     try {
@@ -109,22 +125,28 @@ router.post('/login', async (req, res: Response, next) => {
         console.log('=== LOGIN ATTEMPT ===');
         console.log('Email:', email);
 
-        const { data, error } = await supabase.auth.signInWithPassword({
+        let { data, error } = await supabase.auth.signInWithPassword({
             email,
             password
         });
 
-        console.log('Supabase signInWithPassword result:', { hasUser: !!data?.user, hasSession: !!data?.session, error: error?.message });
+        // Auto-recovery for unconfirmed emails created previously
+        if (error && (error.message?.includes('Email not confirmed') || error.status === 400)) {
+            console.log('Attempting auto-confirmation for user email:', email);
+            const { data: usersData } = await supabaseAdmin.auth.admin.listUsers();
+            const foundUser = usersData?.users?.find(u => u.email === email);
 
-        if (error) {
-            // Check if it's an email confirmation issue
-            if (error.message?.includes('Email not confirmed') || error.message?.includes('not confirmed')) {
-                throw new AppError(
-                    'Email not confirmed. Please check your email for a confirmation link, or disable email confirmation in Supabase settings for development.',
-                    401,
-                    'EMAIL_NOT_CONFIRMED'
-                );
+            if (foundUser) {
+                await supabaseAdmin.auth.admin.updateUserById(foundUser.id, { email_confirm: true });
+                // Retry login
+                const retry = await supabase.auth.signInWithPassword({ email, password });
+                data = retry.data;
+                error = retry.error;
             }
+        }
+
+        if (error || !data?.user) {
+            console.error('Supabase login error:', error?.message);
             throw new AppError('Invalid email or password', 401, 'INVALID_CREDENTIALS');
         }
 
@@ -151,8 +173,8 @@ router.post('/login', async (req, res: Response, next) => {
                 user: {
                     id: data.user.id,
                     email: data.user.email,
-                    username: profile?.username,
-                    role: profile?.role
+                    username: profile?.username || email.split('@')[0],
+                    role: profile?.role || 'user'
                 },
                 token
             }
@@ -180,7 +202,6 @@ router.get('/github', (_req, res: Response) => {
 
 /**
  * GET /api/auth/github/callback
- * Handle GitHub OAuth callback (handles both login and linking)
  */
 router.get('/github/callback', async (req, res: Response, next) => {
     try {
@@ -190,7 +211,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
             throw new AppError('Authorization code missing', 400, 'MISSING_CODE');
         }
 
-        // Decode state to determine action (login or link)
         let action = 'login';
         let linkUserId: string | null = null;
 
@@ -200,12 +220,10 @@ router.get('/github/callback', async (req, res: Response, next) => {
                 action = decoded.action || 'login';
                 linkUserId = decoded.userId || null;
             } catch {
-                // Invalid state, default to login
                 action = 'login';
             }
         }
 
-        // Exchange code for access token
         const tokenResponse = await fetch('https://github.com/login/oauth/access_token', {
             method: 'POST',
             headers: {
@@ -225,9 +243,7 @@ router.get('/github/callback', async (req, res: Response, next) => {
             throw new AppError('GitHub authentication failed', 400, 'GITHUB_AUTH_FAILED');
         }
 
-        // If action is 'link', store the token for the existing user
         if (action === 'link' && linkUserId) {
-            // Get GitHub user info for connected_accounts
             const userResponse = await fetch('https://api.github.com/user', {
                 headers: {
                     Authorization: `Bearer ${tokenData.access_token}`,
@@ -237,7 +253,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
 
             const githubUser = await userResponse.json() as { id: number; email: string; login: string };
 
-            // Save to both tables for backward compatibility
             await supabaseAdmin
                 .from('github_tokens')
                 .upsert({
@@ -255,13 +270,10 @@ router.get('/github/callback', async (req, res: Response, next) => {
                     access_token: tokenData.access_token
                 });
 
-            // Redirect back to profile with success flag
             res.redirect(`${config.frontend.url}/profile?github_linked=true`);
             return;
         }
 
-        // Otherwise, handle as login (existing behavior)
-        // Get GitHub user info
         const userResponse = await fetch('https://api.github.com/user', {
             headers: {
                 Authorization: `Bearer ${tokenData.access_token}`,
@@ -274,7 +286,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
         let userId!: string;
         let existingUser = false;
 
-        // 1. Check connected_accounts by GitHub provider ID
         const { data: connectedAccount } = await supabaseAdmin
             .from('connected_accounts')
             .select('user_id')
@@ -286,7 +297,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
             userId = connectedAccount.user_id;
             existingUser = true;
         } else {
-            // 2. Check profiles by username
             const { data: existingProfile } = await supabaseAdmin
                 .from('profiles')
                 .select('*')
@@ -297,7 +307,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
                 userId = existingProfile.id;
                 existingUser = true;
             } else {
-                // 3. Check if a Supabase auth user already exists with this email
                 const githubEmail = githubUser.email || `${githubUser.login}@github.local`;
                 const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
                 const matchingUser = existingUsers?.users?.find(u => u.email === githubEmail);
@@ -306,7 +315,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
                     userId = matchingUser.id;
                     existingUser = true;
 
-                    // Ensure profile exists
                     const { data: prof } = await supabaseAdmin
                         .from('profiles')
                         .select('id')
@@ -325,7 +333,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
         }
 
         if (existingUser) {
-            // Update GitHub token in both tables
             await supabaseAdmin
                 .from('github_tokens')
                 .upsert({
@@ -343,7 +350,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
                     access_token: tokenData.access_token
                 });
         } else {
-            // Create new user via Supabase auth
             const tempPassword = Math.random().toString(36).substring(2, 15);
             const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
                 email: githubUser.email || `${githubUser.login}@github.local`,
@@ -358,14 +364,12 @@ router.get('/github/callback', async (req, res: Response, next) => {
 
             userId = newUser.user.id;
 
-            // Create profile
             await supabaseAdmin.from('profiles').insert({
                 id: userId,
                 username: githubUser.login,
                 role: 'user'
             });
 
-            // Store GitHub token in both tables
             await supabaseAdmin.from('github_tokens').insert({
                 user_id: userId,
                 access_token: tokenData.access_token
@@ -379,26 +383,22 @@ router.get('/github/callback', async (req, res: Response, next) => {
                 access_token: tokenData.access_token
             });
 
-            // Create workspace
             const workspacePath = getUserWorkspacePath(userId);
             await fs.mkdir(`${workspacePath}/projects`, { recursive: true });
         }
 
-        // Send appropriate email (fire-and-forget)
         if (existingUser) {
             sendLoginEmail(githubUser.email || '', githubUser.login);
         } else {
             sendWelcomeEmail(githubUser.email || '', githubUser.login);
         }
 
-        // Generate JWT
         const token = jwt.sign(
             { sub: userId, email: githubUser.email },
             config.jwt.secret,
             { expiresIn: '7d' }
         );
 
-        // Redirect to frontend with token
         res.redirect(`${config.frontend.url}/auth/callback?token=${token}`);
     } catch (error) {
         next(error);
@@ -407,8 +407,6 @@ router.get('/github/callback', async (req, res: Response, next) => {
 
 /**
  * GET /api/auth/github/link
- * Initiate GitHub OAuth flow for linking to existing account
- * Note: No authMiddleware because full page redirects don't send Authorization header
  */
 router.get('/github/link', (req, res: Response) => {
     const { userId } = req.query;
@@ -434,7 +432,6 @@ router.get('/github/link', (req, res: Response) => {
 
 /**
  * GET /api/auth/google
- * Initiate Google OAuth flow (for login)
  */
 router.get('/google', (_req, res: Response) => {
     const state = JSON.stringify({ action: 'login', nonce: Math.random().toString(36).substring(7) });
@@ -452,7 +449,6 @@ router.get('/google', (_req, res: Response) => {
 
 /**
  * GET /api/auth/google/link
- * Initiate Google OAuth flow for linking to existing account
  */
 router.get('/google/link', (req, res: Response) => {
     const { userId } = req.query;
@@ -480,7 +476,6 @@ router.get('/google/link', (req, res: Response) => {
 
 /**
  * GET /api/auth/google/callback
- * Handle Google OAuth callback (handles both login and linking)
  */
 router.get('/google/callback', async (req, res: Response, next) => {
     try {
@@ -490,7 +485,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
             throw new AppError('Authorization code missing', 400, 'MISSING_CODE');
         }
 
-        // Decode state to determine action (login or link)
         let action = 'login';
         let linkUserId: string | null = null;
 
@@ -500,12 +494,10 @@ router.get('/google/callback', async (req, res: Response, next) => {
                 action = decoded.action || 'login';
                 linkUserId = decoded.userId || null;
             } catch {
-                // Invalid state, default to login
                 action = 'login';
             }
         }
 
-        // Exchange code for access token
         const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
             headers: {
@@ -531,7 +523,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
             throw new AppError('Google authentication failed', 400, 'GOOGLE_AUTH_FAILED');
         }
 
-        // Get Google user info
         const userResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
             headers: {
                 Authorization: `Bearer ${tokenData.access_token}`
@@ -545,9 +536,7 @@ router.get('/google/callback', async (req, res: Response, next) => {
             given_name?: string;
         };
 
-        // If action is 'link', store the connection for the existing user
         if (action === 'link' && linkUserId) {
-            // Check if this Google account is already linked to another user
             const { data: existingConnection } = await supabaseAdmin
                 .from('connected_accounts')
                 .select('user_id')
@@ -560,7 +549,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
                 return;
             }
 
-            // Calculate expiry if provided
             let expiresAt = null;
             if (tokenData.expires_in) {
                 expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
@@ -578,13 +566,10 @@ router.get('/google/callback', async (req, res: Response, next) => {
                     expires_at: expiresAt
                 });
 
-            // Redirect back to profile with success flag
             res.redirect(`${config.frontend.url}/profile?google_linked=true`);
             return;
         }
 
-        // Otherwise, handle as login
-        // Check if user exists by Google ID in connected_accounts
         const { data: existingConnection } = await supabaseAdmin
             .from('connected_accounts')
             .select('user_id')
@@ -597,7 +582,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
         if (existingConnection) {
             userId = existingConnection.user_id;
 
-            // Update tokens
             let expiresAt = null;
             if (tokenData.expires_in) {
                 expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
@@ -613,10 +597,8 @@ router.get('/google/callback', async (req, res: Response, next) => {
                 .eq('user_id', userId)
                 .eq('provider', 'google');
 
-            // Send login notification for existing Google user (fire-and-forget)
             sendLoginEmail(googleUser.email, googleUser.name || googleUser.email.split('@')[0]);
         } else {
-            // Create new user via Supabase auth
             const tempPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
             const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
                 email: googleUser.email,
@@ -630,7 +612,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
 
             userId = newUser.user.id;
 
-            // Create profile
             const username = googleUser.given_name || googleUser.name.split(' ')[0] || googleUser.email.split('@')[0];
             await supabaseAdmin.from('profiles').insert({
                 id: userId,
@@ -638,7 +619,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
                 role: 'user'
             });
 
-            // Store Google connection
             let expiresAt = null;
             if (tokenData.expires_in) {
                 expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
@@ -654,22 +634,18 @@ router.get('/google/callback', async (req, res: Response, next) => {
                 expires_at: expiresAt
             });
 
-            // Create workspace
             const workspacePath = getUserWorkspacePath(userId);
             await fs.mkdir(`${workspacePath}/projects`, { recursive: true });
 
-            // Send welcome email for new Google user (fire-and-forget)
             sendWelcomeEmail(googleUser.email, googleUser.given_name || googleUser.name.split(' ')[0]);
         }
 
-        // Generate JWT
         const token = jwt.sign(
             { sub: userId, email: googleUser.email },
             config.jwt.secret,
             { expiresIn: '7d' }
         );
 
-        // Redirect to frontend with token
         res.redirect(`${config.frontend.url}/auth/callback?token=${token}`);
     } catch (error) {
         next(error);
@@ -678,7 +654,6 @@ router.get('/google/callback', async (req, res: Response, next) => {
 
 /**
  * POST /api/auth/logout
- * Logout current session
  */
 router.post('/logout', authMiddleware, async (_req: AuthenticatedRequest, res: Response) => {
     res.json({ success: true, data: { message: 'Logged out successfully' } });
@@ -686,7 +661,6 @@ router.post('/logout', authMiddleware, async (_req: AuthenticatedRequest, res: R
 
 /**
  * GET /api/auth/session
- * Get current session info
  */
 router.get('/session', authMiddleware, async (req: AuthenticatedRequest, res: Response) => {
     res.json({
@@ -696,4 +670,3 @@ router.get('/session', authMiddleware, async (req: AuthenticatedRequest, res: Re
 });
 
 export { router as authRoutes };
-

@@ -13,6 +13,7 @@ import { supabaseAdmin } from '../config/supabase';
 import { emitExecutionOutput } from '../services/socketService';
 import { SupportedLanguage, ExecutionStatus } from '../types/index';
 import * as storageService from '../services/storageService';
+import { getProjectAccess } from '../services/projectAccessService';
 
 const router = Router();
 
@@ -62,10 +63,18 @@ router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Respon
             }
         });
 
+        // Resolve the project owner — files are stored under the owner's userId
+        const access = await getProjectAccess(req.user!.id, projectId);
+        if (!access.hasAccess) {
+            throw new AppError('Access denied to this project', 403, 'FORBIDDEN');
+        }
+        const storageOwnerId = access.ownerId || req.user!.id;
+
         // Execute in background
         executeWithDockerCLI(
             executionId,
             req.user!.id,
+            storageOwnerId,
             projectId,
             filePath,
             langConfig,
@@ -152,6 +161,7 @@ router.get('/:executionId', async (req: AuthenticatedRequest, res: Response, nex
 async function executeWithDockerCLI(
     executionId: string,
     userId: string,
+    storageOwnerId: string,
     projectId: string,
     filePath: string,
     langConfig: typeof SUPPORTED_LANGUAGES['python'],
@@ -176,8 +186,8 @@ async function executeWithDockerCLI(
         console.log(`[Execute] Created temp directory: ${tempDir}`);
 
         // Step 2: Download project files from cloud storage (excluding .git)
-        console.log(`[Execute] Downloading project files from cloud...`);
-        const files = await storageService.listAllFilesRecursive(userId, projectId, '', {
+        console.log(`[Execute] Downloading project files from cloud (owner: ${storageOwnerId})...`);
+        const files = await storageService.listAllFilesRecursive(storageOwnerId, projectId, '', {
             excludeDirs: ['.git']
         });
         const sourceFiles = files.filter(f => !f.isDirectory);
@@ -190,7 +200,7 @@ async function executeWithDockerCLI(
             const batch = sourceFiles.slice(i, i + BATCH_SIZE);
             const results = await Promise.allSettled(
                 batch.map(async (file) => {
-                    const buffer = await storageService.downloadFile(userId, projectId, file.path);
+                    const buffer = await storageService.downloadFile(storageOwnerId, projectId, file.path);
                     const localFilePath = path.join(tempDir!, file.path);
                     await fs.mkdir(path.dirname(localFilePath), { recursive: true });
                     await fs.writeFile(localFilePath, buffer);
@@ -222,7 +232,7 @@ async function executeWithDockerCLI(
         if (!tempFiles.some(f => f.replace(/\\/g, '/') === filePath.replace(/\\/g, '/'))) {
             console.warn(`[Execute] Target file '${filePath}' not found after recursive listing. Attempting direct download...`);
             try {
-                const buffer = await storageService.downloadFile(userId, projectId, filePath);
+                const buffer = await storageService.downloadFile(storageOwnerId, projectId, filePath);
                 const localFilePath = path.join(tempDir, filePath);
                 await fs.mkdir(path.dirname(localFilePath), { recursive: true });
                 await fs.writeFile(localFilePath, buffer);

@@ -26,15 +26,12 @@ async function apiRequest<T>(endpoint: string, options: ApiOptions = {}): Promis
         body: options.body ? JSON.stringify(options.body) : undefined
     });
 
-    // Handle non-OK responses
     if (!response.ok) {
-        // Auto-logout on invalid/expired token
         if (response.status === 401) {
             const authStore = useAuthStore.getState();
             if (authStore.isAuthenticated) {
                 console.warn('Session expired or token invalid — clearing auth state');
                 localStorage.removeItem('auth-storage');
-                // Clear state directly instead of calling logout() which makes another API call
                 useAuthStore.setState({
                     user: null,
                     token: null,
@@ -44,18 +41,16 @@ async function apiRequest<T>(endpoint: string, options: ApiOptions = {}): Promis
             }
         }
 
-        // Try to parse error as JSON, fallback to status text
         let errorMessage = `Request failed: ${response.status} ${response.statusText}`;
         try {
             const errorData = await response.json();
             errorMessage = errorData.error?.message || errorMessage;
         } catch {
-            // JSON parse failed, use default message
+            // JSON parse failed
         }
         throw new Error(errorMessage);
     }
 
-    // Parse successful response
     try {
         const data = await response.json();
         if (!data.success) {
@@ -114,6 +109,53 @@ export const filesApi = {
 
     delete: (projectId: string, filePath: string) =>
         apiRequest<void>(`/files/${projectId}/${encodeURIComponent(filePath)}`, { method: 'DELETE' })
+};
+
+// Collaboration API
+export const collaborationApi = {
+    getCollaborators: (projectId: string) =>
+        apiRequest<{ owner: any; collaborators: any[]; currentUserRole: string }>(`/projects/${projectId}/collaborators`),
+
+    inviteCollaborator: (projectId: string, emailOrUsername: string, role: 'editor' | 'viewer' = 'editor') =>
+        apiRequest<any>(`/projects/${projectId}/collaborators`, {
+            method: 'POST',
+            body: { emailOrUsername, role }
+        }),
+
+    updateRole: (projectId: string, collaboratorId: string, role: 'editor' | 'viewer') =>
+        apiRequest<any>(`/projects/${projectId}/collaborators/${collaboratorId}`, {
+            method: 'PATCH',
+            body: { role }
+        }),
+
+    removeCollaborator: (projectId: string, collaboratorId: string) =>
+        apiRequest<void>(`/projects/${projectId}/collaborators/${collaboratorId}`, {
+            method: 'DELETE'
+        }),
+
+    getRevisions: (projectId: string, path = '') =>
+        apiRequest<any[]>(`/projects/${projectId}/revisions?path=${encodeURIComponent(path)}`),
+
+    saveSnapshot: (projectId: string, filePath: string, content: string, versionTag?: string) =>
+        apiRequest<any>(`/projects/${projectId}/revisions`, {
+            method: 'POST',
+            body: { filePath, content, versionTag }
+        }),
+
+    getRoomInfo: (projectId: string) =>
+        apiRequest<{ roomId: string; roomPassword: string; hasPassword: boolean; isOwner: boolean }>(`/projects/${projectId}/room-info`),
+
+    updateRoomPassword: (projectId: string, roomPassword: string) =>
+        apiRequest<{ message: string; roomPassword: string }>(`/projects/${projectId}/room-password`, {
+            method: 'PUT',
+            body: { roomPassword }
+        }),
+
+    joinRoom: (roomId: string, roomPassword?: string) =>
+        apiRequest<{ projectId: string; projectName: string; role: string }>('/projects/join-room', {
+            method: 'POST',
+            body: { roomId, roomPassword }
+        })
 };
 
 // Execution API
@@ -227,14 +269,8 @@ export const zipApi = {
 
 // Admin API
 export const adminApi = {
-    // Dashboard
-    dashboard: () =>
-        apiRequest<any>('/admin/dashboard'),
-
-    usage: () =>
-        apiRequest<any>('/admin/usage'),
-
-    // Users
+    dashboard: () => apiRequest<any>('/admin/dashboard'),
+    usage: () => apiRequest<any>('/admin/usage'),
     users: (page = 1, limit = 50, search?: string, status?: string, role?: string) => {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) });
         if (search) params.set('search', search);
@@ -242,76 +278,33 @@ export const adminApi = {
         if (role) params.set('role', role);
         return apiRequest<any>(`/admin/users?${params}`);
     },
-
-    userDetail: (userId: string) =>
-        apiRequest<any>(`/admin/users/${userId}`),
-
-    blockUser: (userId: string, reason?: string) =>
-        apiRequest<any>(`/admin/users/${userId}/block`, { method: 'PUT', body: { reason } }),
-
-    unblockUser: (userId: string) =>
-        apiRequest<any>(`/admin/users/${userId}/unblock`, { method: 'PUT' }),
-
-    updateRole: (userId: string, role: 'user' | 'admin') =>
-        apiRequest<any>(`/admin/users/${userId}/role`, { method: 'PUT', body: { role } }),
-
-    deleteUser: (userId: string) =>
-        apiRequest<any>(`/admin/users/${userId}`, { method: 'DELETE' }),
-
-    // Projects
+    userDetail: (userId: string) => apiRequest<any>(`/admin/users/${userId}`),
+    blockUser: (userId: string, reason?: string) => apiRequest<any>(`/admin/users/${userId}/block`, { method: 'PUT', body: { reason } }),
+    unblockUser: (userId: string) => apiRequest<any>(`/admin/users/${userId}/unblock`, { method: 'PUT' }),
+    updateRole: (userId: string, role: 'user' | 'admin') => apiRequest<any>(`/admin/users/${userId}/role`, { method: 'PUT', body: { role } }),
+    deleteUser: (userId: string) => apiRequest<any>(`/admin/users/${userId}`, { method: 'DELETE' }),
     projects: (page = 1, limit = 50, search?: string) => {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) });
         if (search) params.set('search', search);
         return apiRequest<any>(`/admin/projects?${params}`);
     },
-
-    projectDetail: (projectId: string) =>
-        apiRequest<any>(`/admin/projects/${projectId}`),
-
-    deleteProject: (projectId: string) =>
-        apiRequest<any>(`/admin/projects/${projectId}`, { method: 'DELETE' }),
-
+    projectDetail: (projectId: string) => apiRequest<any>(`/admin/projects/${projectId}`),
+    deleteProject: (projectId: string) => apiRequest<any>(`/admin/projects/${projectId}`, { method: 'DELETE' }),
     downloadProject: (projectId: string) => {
         const token = useAuthStore.getState().token;
         window.open(`/api/admin/projects/${projectId}/download?token=${token}`, '_blank');
     },
-
-    // Executions
-    activeExecutions: () =>
-        apiRequest<any[]>('/admin/executions/active'),
-
-    killExecution: (containerId: string) =>
-        apiRequest<any>(`/admin/executions/${containerId}/kill`, { method: 'POST' }),
-
-    executionLogs: (containerId: string) =>
-        apiRequest<any>(`/admin/executions/${containerId}/logs`),
-
-    // Containers
-    containers: (all = false) =>
-        apiRequest<any[]>(`/admin/containers?all=${all}`),
-
-    containerStats: (containerId: string) =>
-        apiRequest<any>(`/admin/containers/${containerId}/stats`),
-
-    stopContainer: (containerId: string) =>
-        apiRequest<any>(`/admin/containers/${containerId}/stop`, { method: 'POST' }),
-
-    restartContainer: (containerId: string) =>
-        apiRequest<any>(`/admin/containers/${containerId}/restart`, { method: 'POST' }),
-
-    pauseContainer: (containerId: string) =>
-        apiRequest<any>(`/admin/containers/${containerId}/pause`, { method: 'POST' }),
-
-    unpauseContainer: (containerId: string) =>
-        apiRequest<any>(`/admin/containers/${containerId}/unpause`, { method: 'POST' }),
-
-    removeContainer: (containerId: string) =>
-        apiRequest<any>(`/admin/containers/${containerId}`, { method: 'DELETE' }),
-
-    cleanupContainers: (maxAgeHours = 24) =>
-        apiRequest<any>('/admin/containers/cleanup', { method: 'POST', body: { maxAgeHours } }),
-
-    // Logs
+    activeExecutions: () => apiRequest<any[]>('/admin/executions/active'),
+    killExecution: (containerId: string) => apiRequest<any>(`/admin/executions/${containerId}/kill`, { method: 'POST' }),
+    executionLogs: (containerId: string) => apiRequest<any>(`/admin/executions/${containerId}/logs`),
+    containers: (all = false) => apiRequest<any[]>(`/admin/containers?all=${all}`),
+    containerStats: (containerId: string) => apiRequest<any>(`/admin/containers/${containerId}/stats`),
+    stopContainer: (containerId: string) => apiRequest<any>(`/admin/containers/${containerId}/stop`, { method: 'POST' }),
+    restartContainer: (containerId: string) => apiRequest<any>(`/admin/containers/${containerId}/restart`, { method: 'POST' }),
+    pauseContainer: (containerId: string) => apiRequest<any>(`/admin/containers/${containerId}/pause`, { method: 'POST' }),
+    unpauseContainer: (containerId: string) => apiRequest<any>(`/admin/containers/${containerId}/unpause`, { method: 'POST' }),
+    removeContainer: (containerId: string) => apiRequest<any>(`/admin/containers/${containerId}`, { method: 'DELETE' }),
+    cleanupContainers: (maxAgeHours = 24) => apiRequest<any>('/admin/containers/cleanup', { method: 'POST', body: { maxAgeHours } }),
     logs: (page = 1, limit = 50, filters?: { userId?: string; status?: string; language?: string }) => {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) });
         if (filters?.userId) params.set('userId', filters.userId);
@@ -319,7 +312,6 @@ export const adminApi = {
         if (filters?.language) params.set('language', filters.language);
         return apiRequest<any>(`/admin/logs?${params}`);
     },
-
     auditLogs: (page = 1, limit = 50, filters?: { action?: string; severity?: string; targetType?: string }) => {
         const params = new URLSearchParams({ page: String(page), limit: String(limit) });
         if (filters?.action) params.set('action', filters.action);
@@ -327,24 +319,12 @@ export const adminApi = {
         if (filters?.targetType) params.set('targetType', filters.targetType);
         return apiRequest<any>(`/admin/audit-logs?${params}`);
     },
-
-    // Analytics
-    analytics: (days = 7) =>
-        apiRequest<any>(`/admin/analytics?days=${days}`),
-
+    analytics: (days = 7) => apiRequest<any>(`/admin/analytics?days=${days}`),
     exportAnalytics: (days = 30) => {
         const token = useAuthStore.getState().token;
         window.open(`/api/admin/analytics/export?days=${days}&token=${token}`, '_blank');
     },
-
-    // Settings
-    settings: () =>
-        apiRequest<any[]>('/admin/settings'),
-
-    updateSettings: (settings: Record<string, string>) =>
-        apiRequest<any>('/admin/settings', { method: 'PUT', body: { settings } }),
-
-    // Alerts
-    alerts: () =>
-        apiRequest<any[]>('/admin/alerts')
+    settings: () => apiRequest<any[]>('/admin/settings'),
+    updateSettings: (settings: Record<string, string>) => apiRequest<any>('/admin/settings', { method: 'PUT', body: { settings } }),
+    alerts: () => apiRequest<any[]>('/admin/alerts')
 };

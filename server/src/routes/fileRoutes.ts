@@ -7,6 +7,7 @@ import { emitFileChange } from '../services/socketService';
 import * as storageService from '../services/storageService';
 import { checkStorageQuota } from '../utils/pathSecurity';
 import { supabaseAdmin } from '../config/supabase';
+import { getProjectAccess } from '../services/projectAccessService';
 
 const router = Router();
 
@@ -35,22 +36,13 @@ router.get('/:projectId', async (req: AuthenticatedRequest, res: Response, next)
         const relativePath = (req.query.path as string) || '';
         const userId = req.user!.id;
 
-        console.log(`[Files] List request: projectId=${projectId}, path=${relativePath}`);
-
-        // Verify user owns this project
-        const { data: project } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', projectId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!project) {
-            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
+        const access = await getProjectAccess(userId, projectId);
+        if (!access.hasAccess || !access.ownerId) {
+            throw new AppError('Project not found or access denied', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // List files from cloud storage
-        const files = await storageService.listFiles(userId, projectId, relativePath);
+        // List files from cloud storage under project owner's scope
+        const files = await storageService.listFiles(access.ownerId, projectId, relativePath);
 
         const fileNodes: FileNode[] = files.map(file => ({
             name: file.name,
@@ -60,7 +52,6 @@ router.get('/:projectId', async (req: AuthenticatedRequest, res: Response, next)
             modifiedAt: file.updatedAt
         }));
 
-        // Sort: directories first, then alphabetically
         fileNodes.sort((a, b) => {
             if (a.type !== b.type) {
                 return a.type === 'directory' ? -1 : 1;
@@ -84,22 +75,12 @@ router.get('/:projectId/content/*', async (req: AuthenticatedRequest, res: Respo
         const relativePath = decodeURIComponent(req.params[0] || '');
         const userId = req.user!.id;
 
-        console.log(`[Files] Read file: ${relativePath}`);
-
-        // Verify user owns this project
-        const { data: project } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', projectId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!project) {
-            throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
+        const access = await getProjectAccess(userId, projectId);
+        if (!access.hasAccess || !access.ownerId) {
+            throw new AppError('Project not found or access denied', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Download file from cloud storage
-        const buffer = await storageService.downloadFile(userId, projectId, relativePath);
+        const buffer = await storageService.downloadFile(access.ownerId, projectId, relativePath);
         const content = buffer.toString('utf-8');
 
         res.json({
@@ -127,51 +108,30 @@ router.post('/:projectId/create/*', async (req: AuthenticatedRequest, res: Respo
         const { type, content = '' } = createFileSchema.parse(req.body);
         const userId = req.user!.id;
 
-        console.log(`[Files] Create ${type}: ${relativePath}`);
-
-        // Verify user owns this project
-        const { data: project } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', projectId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!project) {
+        const access = await getProjectAccess(userId, projectId);
+        if (!access.hasAccess || !access.ownerId) {
             throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Check storage quota
-        const quota = await checkStorageQuota(userId, content.length);
+        if (access.role === 'viewer') {
+            throw new AppError('Viewers cannot create files or directories', 403, 'FORBIDDEN');
+        }
+
+        const quota = await checkStorageQuota(access.ownerId, content.length);
         if (!quota.withinQuota) {
-            throw new AppError('Storage quota exceeded', 400, 'QUOTA_EXCEEDED');
+            throw new AppError('Storage quota exceeded for project owner', 400, 'QUOTA_EXCEEDED');
         }
 
         if (type === 'directory') {
-            // For directories, create a .gitkeep file to represent the directory
             const gitkeepPath = relativePath.endsWith('/')
                 ? `${relativePath}.gitkeep`
                 : `${relativePath}/.gitkeep`;
-            await storageService.uploadFile(userId, projectId, gitkeepPath, Buffer.from(''));
+            await storageService.uploadFile(access.ownerId, projectId, gitkeepPath, Buffer.from(''));
         } else {
-            // Upload file to cloud storage
             const buffer = Buffer.from(content, 'utf-8');
-            await storageService.uploadFile(userId, projectId, relativePath, buffer);
+            await storageService.uploadFile(access.ownerId, projectId, relativePath, buffer);
         }
 
-        // Update storage usage in database (skip on error to avoid resetting to 0)
-        try {
-            const storageUsage = await storageService.getStorageUsage(userId);
-            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-            await supabaseAdmin
-                .from('profiles')
-                .update({ storage_used_mb: usageMb })
-                .eq('id', userId);
-        } catch (e) {
-            console.error('[Files] Failed to update storage usage, skipping DB update:', e);
-        }
-
-        // Emit file change event
         const io = req.app.get('io');
         emitFileChange(io, projectId, 'created', relativePath);
 
@@ -195,43 +155,23 @@ router.put('/:projectId/content/*', async (req: AuthenticatedRequest, res: Respo
         const { content } = updateFileSchema.parse(req.body);
         const userId = req.user!.id;
 
-        console.log(`[Files] Update file: ${relativePath}`);
-
-        // Verify user owns this project
-        const { data: project } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', projectId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!project) {
+        const access = await getProjectAccess(userId, projectId);
+        if (!access.hasAccess || !access.ownerId) {
             throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Check storage quota
-        const quota = await checkStorageQuota(userId, content.length);
+        if (access.role === 'viewer') {
+            throw new AppError('Viewers cannot edit files', 403, 'FORBIDDEN');
+        }
+
+        const quota = await checkStorageQuota(access.ownerId, content.length);
         if (!quota.withinQuota) {
-            throw new AppError('Storage quota exceeded', 400, 'QUOTA_EXCEEDED');
+            throw new AppError('Storage quota exceeded for project owner', 400, 'QUOTA_EXCEEDED');
         }
 
-        // Upload file to cloud storage (upsert mode)
         const buffer = Buffer.from(content, 'utf-8');
-        await storageService.uploadFile(userId, projectId, relativePath, buffer);
+        await storageService.uploadFile(access.ownerId, projectId, relativePath, buffer);
 
-        // Update storage usage in database (skip on error to avoid resetting to 0)
-        try {
-            const storageUsage = await storageService.getStorageUsage(userId);
-            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-            await supabaseAdmin
-                .from('profiles')
-                .update({ storage_used_mb: usageMb })
-                .eq('id', userId);
-        } catch (e) {
-            console.error('[Files] Failed to update storage usage, skipping DB update:', e);
-        }
-
-        // Emit file change event
         const io = req.app.get('io');
         emitFileChange(io, projectId, 'modified', relativePath);
 
@@ -255,29 +195,21 @@ router.patch('/:projectId/rename/*', async (req: AuthenticatedRequest, res: Resp
         const { newName } = renameSchema.parse(req.body);
         const userId = req.user!.id;
 
-        console.log(`[Files] Rename: ${relativePath} → ${newName}`);
-
-        // Verify user owns this project
-        const { data: project } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', projectId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!project) {
+        const access = await getProjectAccess(userId, projectId);
+        if (!access.hasAccess || !access.ownerId) {
             throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Calculate new path
+        if (access.role === 'viewer') {
+            throw new AppError('Viewers cannot rename files', 403, 'FORBIDDEN');
+        }
+
         const pathParts = relativePath.split('/');
         pathParts[pathParts.length - 1] = newName;
         const newRelativePath = pathParts.join('/');
 
-        // Move file in cloud storage
-        await storageService.moveFile(userId, projectId, relativePath, newRelativePath);
+        await storageService.moveFile(access.ownerId, projectId, relativePath, newRelativePath);
 
-        // Emit file change events
         const io = req.app.get('io');
         emitFileChange(io, projectId, 'deleted', relativePath);
         emitFileChange(io, projectId, 'created', newRelativePath);
@@ -301,49 +233,27 @@ router.delete('/:projectId/*', async (req: AuthenticatedRequest, res: Response, 
         const relativePath = decodeURIComponent(req.params[0] || '');
         const userId = req.user!.id;
 
-        console.log(`[Files] Delete: ${relativePath}`);
-
-        // Verify user owns this project
-        const { data: project } = await supabaseAdmin
-            .from('projects')
-            .select('id')
-            .eq('id', projectId)
-            .eq('user_id', userId)
-            .single();
-
-        if (!project) {
+        const access = await getProjectAccess(userId, projectId);
+        if (!access.hasAccess || !access.ownerId) {
             throw new AppError('Project not found', 404, 'PROJECT_NOT_FOUND');
         }
 
-        // Prevent deleting project root
+        if (access.role === 'viewer') {
+            throw new AppError('Viewers cannot delete files', 403, 'FORBIDDEN');
+        }
+
         if (!relativePath || relativePath === '' || relativePath === '/') {
             throw new AppError('Cannot delete project root', 400, 'CANNOT_DELETE_ROOT');
         }
 
-        // Check if it's a directory by looking for files with this prefix
-        const files = await storageService.listFiles(userId, projectId, relativePath);
+        const files = await storageService.listFiles(access.ownerId, projectId, relativePath);
 
         if (files.length > 0) {
-            // It's a directory, delete recursively
-            await storageService.deleteDirectory(userId, projectId, relativePath);
+            await storageService.deleteDirectory(access.ownerId, projectId, relativePath);
         } else {
-            // It's a file, delete it
-            await storageService.deleteFile(userId, projectId, relativePath);
+            await storageService.deleteFile(access.ownerId, projectId, relativePath);
         }
 
-        // Update storage usage in database (skip on error to avoid resetting to 0)
-        try {
-            const storageUsage = await storageService.getStorageUsage(userId);
-            const usageMb = Math.round(storageUsage / (1024 * 1024) * 100) / 100;
-            await supabaseAdmin
-                .from('profiles')
-                .update({ storage_used_mb: usageMb })
-                .eq('id', userId);
-        } catch (e) {
-            console.error('[Files] Failed to update storage usage, skipping DB update:', e);
-        }
-
-        // Emit file change event
         const io = req.app.get('io');
         emitFileChange(io, projectId, 'deleted', relativePath);
 

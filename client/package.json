@@ -19,6 +19,9 @@
         "react-dom": "^18.3.1",
         "react-router-dom": "^6.25.1",
         "socket.io-client": "^4.7.5",
+        "y-monaco": "^0.1.6",
+        "y-protocols": "^1.0.7",
+        "yjs": "^13.6.32",
         "zustand": "^4.5.4"
     },
     "devDependencies": {
