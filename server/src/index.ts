@@ -15,6 +15,7 @@ import { gitRoutes } from './routes/gitRoutes';
 import { zipRoutes } from './routes/zipRoutes';
 import { adminRoutes } from './routes/adminRoutes';
 import { profileRoutes } from './routes/profileRoutes';
+import { collaborationRoutes } from './routes/collaborationRoutes';
 import { errorHandler } from './middleware/errorHandler';
 import { setupSocketHandlers } from './services/socketService';
 
@@ -65,6 +66,7 @@ app.get('/health', (_req, res) => {
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/projects', projectRoutes);
+app.use('/api/projects', collaborationRoutes);
 app.use('/api/files', fileRoutes);
 app.use('/api/execute', executeRoutes);
 app.use('/api/git', gitRoutes);
@@ -72,26 +74,21 @@ app.use('/api/zip', zipRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/profile', profileRoutes);
 
-// ── Static file serving (landing page + client SPA) ──────────────────────
+// Static file serving
 const landingDir = path.resolve(__dirname, '../../landing');
 const clientDistDir = path.resolve(__dirname, '../../client/dist');
 
-// Serve landing page assets (style.css, script.js, etc.)
 app.use('/landing', express.static(landingDir));
 
-// Serve Vite-built client assets
 if (fs.existsSync(clientDistDir)) {
     app.use(express.static(clientDistDir));
 }
 
-// Landing page at root and /landing
 app.get(['/', '/landing'], (_req, res) => {
     res.sendFile(path.join(landingDir, 'index.html'));
 });
 
-// All other non-API routes → client SPA (handles /login, /dashboard, etc.)
 app.get('*', (req, res, next) => {
-    // Skip API routes and socket.io
     if (req.path.startsWith('/api') || req.path.startsWith('/socket.io')) {
         return next();
     }
@@ -99,21 +96,15 @@ app.get('*', (req, res, next) => {
     if (fs.existsSync(clientIndex)) {
         res.sendFile(clientIndex);
     } else {
-        // In development, proxy handles this; only relevant for production
         res.redirect(config.frontend.url + req.originalUrl);
     }
 });
 
-// Error handling
 app.use(errorHandler);
 
-// Setup WebSocket handlers
 setupSocketHandlers(io);
-
-// Make io available to routes
 app.set('io', io);
 
-// Start server
 const PORT = config.server.port;
 
 httpServer.listen(PORT, () => {
@@ -130,4 +121,3 @@ httpServer.listen(PORT, () => {
 });
 
 export { app, io };
-

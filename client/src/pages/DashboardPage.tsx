@@ -8,10 +8,11 @@ import ConfirmModal from '../components/ConfirmModal';
 import {
     Plus, Folder, LogOut, Settings, Search,
     Calendar, MoreVertical, Edit3, Trash2, Download, Github,
-    ChevronRight, Sparkles, User, Package, Link, AlertTriangle, Lightbulb, Loader
+    ChevronRight, Sparkles, User, Package, Link, AlertTriangle, Lightbulb, Loader, LogIn
 } from 'lucide-react';
 import GitHubSetupModal from '../components/GitHubSetupModal';
 import SettingsDropdown from '../components/SettingsDropdown';
+import { JoinRoomModal } from '../components/JoinRoomModal';
 import '../styles/dashboard.css';
 import '../styles/github-modal.css';
 
@@ -21,6 +22,7 @@ export default function DashboardPage() {
     const { projects, setProjects, addProject, removeProject, updateProject, setLoading, isLoading } = useProjectStore();
 
     const [showCreateModal, setShowCreateModal] = useState(false);
+    const [showJoinModal, setShowJoinModal] = useState(false);
     const { modalState, showAlert, showConfirm, closeModal } = useModal();
     const [showRenameModal, setShowRenameModal] = useState(false);
     const [showGitHubSetupModal, setShowGitHubSetupModal] = useState(false);
@@ -177,9 +179,14 @@ export default function DashboardPage() {
                             <h2>Welcome back, {user?.username}! <Sparkles size={24} className="sparkle" /></h2>
                             <p>Create multi-language projects with full file system support.</p>
                         </div>
-                        <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                            <Plus size={18} /> New Project
-                        </button>
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button className="btn btn-secondary" onClick={() => setShowJoinModal(true)}>
+                                <LogIn size={18} /> Join Room
+                            </button>
+                            <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                                <Plus size={18} /> New Project
+                            </button>
+                        </div>
                     </section>
 
                     {/* Projects Grid */}
@@ -199,10 +206,15 @@ export default function DashboardPage() {
                             <div className="empty-state">
                                 <Folder size={48} />
                                 <h4>No projects yet</h4>
-                                <p>Create your first project to get started</p>
-                                <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
-                                    <Plus size={18} /> Create Project
-                                </button>
+                                <p>Create your first project or join an existing collaborative room</p>
+                                <div style={{ display: 'flex', gap: '10px', marginTop: '12px' }}>
+                                    <button className="btn btn-secondary" onClick={() => setShowJoinModal(true)}>
+                                        <LogIn size={18} /> Join Room
+                                    </button>
+                                    <button className="btn btn-primary" onClick={() => setShowCreateModal(true)}>
+                                        <Plus size={18} /> Create Project
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <div className="projects-grid">
@@ -266,6 +278,15 @@ export default function DashboardPage() {
                     }}
                 />
             )}
+
+            {/* Join Room Modal */}
+            <JoinRoomModal
+                isOpen={showJoinModal}
+                onClose={() => {
+                    setShowJoinModal(false);
+                    loadProjects();
+                }}
+            />
 
             <ConfirmModal
                 isOpen={modalState.isOpen}
