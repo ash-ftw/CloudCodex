@@ -591,74 +591,134 @@ router.get('/google/callback', async (req, res: Response, next) => {
             return;
         }
 
+        let expiresAt = null;
+        if (tokenData.expires_in) {
+            expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
+        }
+
         const { data: existingConnection } = await supabaseAdmin
             .from('connected_accounts')
             .select('user_id')
             .eq('provider', 'google')
             .eq('provider_user_id', googleUser.id)
-            .single();
+            .maybeSingle();
 
         let userId: string;
+        let isNewUser = false;
 
         if (existingConnection) {
             userId = existingConnection.user_id;
 
-            let expiresAt = null;
-            if (tokenData.expires_in) {
-                expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
-            }
-
             await supabaseAdmin
                 .from('connected_accounts')
                 .update({
+                    email: googleUser.email,
                     access_token: tokenData.access_token,
                     refresh_token: tokenData.refresh_token,
                     expires_at: expiresAt
                 })
                 .eq('user_id', userId)
                 .eq('provider', 'google');
-
-            sendLoginEmail(googleUser.email, googleUser.name || googleUser.email.split('@')[0]);
         } else {
-            const tempPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
-            const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
-                email: googleUser.email,
-                password: tempPassword,
-                email_confirm: true
-            });
+            // Check if user already exists with this email in Supabase Auth
+            const { data: existingUsers } = await supabaseAdmin.auth.admin.listUsers();
+            const matchingUser = existingUsers?.users?.find(
+                u => u.email?.toLowerCase() === googleUser.email.toLowerCase()
+            );
 
-            if (error || !newUser.user) {
-                throw new AppError('Failed to create user', 500, 'USER_CREATION_FAILED');
+            if (matchingUser) {
+                userId = matchingUser.id;
+
+                // Ensure profile exists
+                const { data: prof } = await supabaseAdmin
+                    .from('profiles')
+                    .select('id')
+                    .eq('id', userId)
+                    .maybeSingle();
+
+                if (!prof) {
+                    const username = googleUser.given_name || googleUser.name.split(' ')[0] || googleUser.email.split('@')[0];
+                    await supabaseAdmin.from('profiles').insert({
+                        id: userId,
+                        username: username.toLowerCase().replace(/\s+/g, '_'),
+                        role: 'user'
+                    });
+                }
+
+                // Link/upsert Google account into connected_accounts
+                const { data: existingAcc } = await supabaseAdmin
+                    .from('connected_accounts')
+                    .select('id')
+                    .eq('user_id', userId)
+                    .eq('provider', 'google')
+                    .maybeSingle();
+
+                if (existingAcc) {
+                    await supabaseAdmin
+                        .from('connected_accounts')
+                        .update({
+                            provider_user_id: googleUser.id,
+                            email: googleUser.email,
+                            access_token: tokenData.access_token,
+                            refresh_token: tokenData.refresh_token,
+                            expires_at: expiresAt
+                        })
+                        .eq('id', existingAcc.id);
+                } else {
+                    await supabaseAdmin
+                        .from('connected_accounts')
+                        .insert({
+                            user_id: userId,
+                            provider: 'google',
+                            provider_user_id: googleUser.id,
+                            email: googleUser.email,
+                            access_token: tokenData.access_token,
+                            refresh_token: tokenData.refresh_token,
+                            expires_at: expiresAt
+                        });
+                }
+            } else {
+                isNewUser = true;
+                const tempPassword = Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15);
+                const { data: newUser, error } = await supabaseAdmin.auth.admin.createUser({
+                    email: googleUser.email,
+                    password: tempPassword,
+                    email_confirm: true
+                });
+
+                if (error || !newUser.user) {
+                    console.error('Failed to create user in Supabase:', error?.message);
+                    throw new AppError('Failed to create user', 500, 'USER_CREATION_FAILED');
+                }
+
+                userId = newUser.user.id;
+
+                const username = googleUser.given_name || googleUser.name.split(' ')[0] || googleUser.email.split('@')[0];
+                await supabaseAdmin.from('profiles').insert({
+                    id: userId,
+                    username: username.toLowerCase().replace(/\s+/g, '_'),
+                    role: 'user'
+                });
+
+                await supabaseAdmin.from('connected_accounts').insert({
+                    user_id: userId,
+                    provider: 'google',
+                    provider_user_id: googleUser.id,
+                    email: googleUser.email,
+                    access_token: tokenData.access_token,
+                    refresh_token: tokenData.refresh_token,
+                    expires_at: expiresAt
+                });
             }
-
-            userId = newUser.user.id;
-
-            const username = googleUser.given_name || googleUser.name.split(' ')[0] || googleUser.email.split('@')[0];
-            await supabaseAdmin.from('profiles').insert({
-                id: userId,
-                username: username.toLowerCase().replace(/\s+/g, '_'),
-                role: 'user'
-            });
-
-            let expiresAt = null;
-            if (tokenData.expires_in) {
-                expiresAt = new Date(Date.now() + tokenData.expires_in * 1000).toISOString();
-            }
-
-            await supabaseAdmin.from('connected_accounts').insert({
-                user_id: userId,
-                provider: 'google',
-                provider_user_id: googleUser.id,
-                email: googleUser.email,
-                access_token: tokenData.access_token,
-                refresh_token: tokenData.refresh_token,
-                expires_at: expiresAt
-            });
 
             const workspacePath = getUserWorkspacePath(userId);
             await fs.mkdir(`${workspacePath}/projects`, { recursive: true });
+        }
 
+        if (isNewUser) {
             sendWelcomeEmail(googleUser.email, googleUser.given_name || googleUser.name.split(' ')[0]);
+        } else {
+            sendLoginEmail(googleUser.email, googleUser.name || googleUser.email.split('@')[0]);
         }
 
         const token = jwt.sign(
