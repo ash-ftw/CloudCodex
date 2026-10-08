@@ -48,9 +48,9 @@ export default function LoginPage() {
                 {/* Logo and Title */}
                 <div className="login-header">
                     <div className="logo">
-                        <img src="/favicon.svg" width={64} height={64} alt="CloudCodeX logo" />
+                        <img src="/favicon.svg" width={64} height={64} alt="CodeSphere logo" />
                     </div>
-                    <h1>CloudCodeX</h1>
+                    <h1>CodeSphere</h1>
                     <p>Cloud-based IDE for Modern Development</p>
                 </div>
 

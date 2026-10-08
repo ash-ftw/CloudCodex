@@ -362,7 +362,7 @@ export default function EditorPage() {
                         <ChevronLeft size={20} />
                     </button>
                     <div className="project-info">
-                        <img src="/favicon.svg" width={18} height={18} alt="CloudCodeX logo" />
+                        <img src="/favicon.svg" width={18} height={18} alt="CodeSphere logo" />
                         <span>{currentProject?.name || 'Loading...'}</span>
                     </div>
                 </div>
@@ -528,7 +528,7 @@ export default function EditorPage() {
                             />
                         ) : (
                             <div className="no-file-open">
-                                <img src="/favicon.svg" width={48} height={48} alt="CloudCodeX logo" style={{ opacity: 0.5 }} />
+                                <img src="/favicon.svg" width={48} height={48} alt="CodeSphere logo" style={{ opacity: 0.5 }} />
                                 <p>Select a file to start editing</p>
                             </div>
                         )}
@@ -634,7 +634,7 @@ function WelcomeGuidelinesModal({ onClose }: { onClose: (neverShowAgain: boolean
                     <div className="welcome-icon">
                         <BookOpen size={28} />
                     </div>
-                    <h2>Welcome to CloudCodeX Collaborative IDE</h2>
+                    <h2>Welcome to CodeSphere Collaborative IDE</h2>
                     <p className="welcome-subtitle">Here's everything you need to get started</p>
                 </div>
 

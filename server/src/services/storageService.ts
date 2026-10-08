@@ -438,7 +438,7 @@ export async function ensureProjectExists(
     projectId: string,
     projectName: string
 ): Promise<void> {
-    const readmeContent = `# ${projectName}\n\nCreated with CloudCodeX\n`;
+    const readmeContent = `# ${projectName}\n\nCreated with CodeSphere\n`;
     const readmeBuffer = Buffer.from(readmeContent);
 
     await uploadFile(userId, projectId, 'README.md', readmeBuffer);

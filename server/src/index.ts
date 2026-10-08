@@ -117,7 +117,7 @@ httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
-║   ☁️  CloudCodeX Server                                   ║
+║   ☁️  CodeSphere Server                                   ║
 ║                                                           ║
 ║   Server running at http://localhost:${PORT}               ║
 ║   Environment: ${config.server.nodeEnv.padEnd(40)}║
