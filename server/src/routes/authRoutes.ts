@@ -283,6 +283,27 @@ router.get('/github/callback', async (req, res: Response, next) => {
 
         const githubUser = await userResponse.json() as { id: number; email: string; login: string };
 
+        // If public email is hidden, fetch primary email from GitHub /user/emails
+        if (!githubUser.email) {
+            try {
+                const emailsRes = await fetch('https://api.github.com/user/emails', {
+                    headers: {
+                        Authorization: `Bearer ${tokenData.access_token}`,
+                        Accept: 'application/vnd.github.v3+json'
+                    }
+                });
+                if (emailsRes.ok) {
+                    const emails = await emailsRes.json() as Array<{ email: string; primary: boolean; verified: boolean }>;
+                    const primary = emails.find(e => e.primary && e.verified) || emails.find(e => e.verified) || emails[0];
+                    if (primary?.email) {
+                        githubUser.email = primary.email;
+                    }
+                }
+            } catch (err) {
+                console.warn('[GitHub OAuth] Could not fetch private emails:', err);
+            }
+        }
+
         let userId!: string;
         let existingUser = false;
 

@@ -32,13 +32,16 @@ router.get('/', authMiddleware, async (req: AuthenticatedRequest, res: Response,
         }
 
         // Get connected accounts (without tokens)
-        const { data: connectedAccounts, error: accountsError } = await supabaseAdmin
+        let connectedAccounts: any[] = [];
+        const { data: accountsData, error: accountsError } = await supabaseAdmin
             .from('connected_accounts')
             .select('id, provider, email, created_at')
             .eq('user_id', userId);
 
         if (accountsError) {
-            throw new AppError('Failed to fetch connected accounts', 500, 'FETCH_FAILED');
+            console.warn('[Profile] Notice: Could not fetch connected_accounts (table might not exist yet):', accountsError.message);
+        } else if (accountsData) {
+            connectedAccounts = accountsData;
         }
 
         // Calculate live storage from cloud (fall back to DB value on error)
@@ -124,7 +127,7 @@ router.get('/connected-accounts', authMiddleware, async (req: AuthenticatedReque
             .eq('user_id', userId);
 
         if (error) {
-            throw new AppError('Failed to fetch connected accounts', 500, 'FETCH_FAILED');
+            console.warn('[Profile] Notice: Could not fetch connected_accounts (table might not exist yet):', error.message);
         }
 
         res.json({
