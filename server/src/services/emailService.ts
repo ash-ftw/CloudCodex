@@ -67,6 +67,11 @@ export async function sendWelcomeEmail(to: string, username: string): Promise<vo
         return;
     }
 
+    if (!to || !to.trim() || !to.includes('@') || to.endsWith('@github.local')) {
+        console.warn(`[Email] Skipping welcome email: no valid email address provided for user ${username}`);
+        return;
+    }
+
     const { subject, html } = buildWelcomeEmail(username);
 
     try {
@@ -130,6 +135,11 @@ function buildLoginEmail(username: string): { subject: string; html: string } {
 export async function sendLoginEmail(to: string, username: string): Promise<void> {
     if (!config.smtp.host) {
         console.warn('SMTP not configured — skipping login email');
+        return;
+    }
+
+    if (!to || !to.trim() || !to.includes('@') || to.endsWith('@github.local')) {
+        console.warn(`[Email] Skipping login email: no valid email address provided for user ${username}`);
         return;
     }
 
