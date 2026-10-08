@@ -12,7 +12,7 @@ const transporter = nodemailer.createTransport({
 });
 
 function buildWelcomeEmail(username: string): { subject: string; html: string } {
-    const subject = 'Welcome to CloudCodeX!';
+    const subject = 'Welcome to CodeSphere!';
     const html = `
     <!DOCTYPE html>
     <html>
@@ -33,18 +33,18 @@ function buildWelcomeEmail(username: string): { subject: string; html: string } 
         <div class="container">
             <div class="card">
                 <h1>Welcome, ${escapeHtml(username)}!</h1>
-                <p>Thanks for signing up for <strong>CloudCodeX</strong> — your cloud-based coding environment.</p>
+                <p>Thanks for signing up for <strong>CodeSphere</strong> — your cloud-based coding environment.</p>
                 <p>You can now write, run, and collaborate on code in 10+ languages right from your browser. Here are a few things to try:</p>
                 <ul>
                     <li>Create a new project and start coding instantly</li>
                     <li>Connect your GitHub account to push and pull repos</li>
                     <li>Share projects and collaborate in real time</li>
                 </ul>
-                <a href="${escapeHtml(config.frontend.url)}" style="display:inline-block;background:#4f46e5;color:#ffffff !important;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px;">Open CloudCodeX</a>
-                <p style="margin-top: 24px;">Happy coding!<br/>The CloudCodeX Team</p>
+                <a href="${escapeHtml(config.frontend.url)}" style="display:inline-block;background:#4f46e5;color:#ffffff !important;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px;">Open CodeSphere</a>
+                <p style="margin-top: 24px;">Happy coding!<br/>The CodeSphere Team</p>
             </div>
             <div class="footer">
-                <p>You received this email because you signed up for CloudCodeX.</p>
+                <p>You received this email because you signed up for CodeSphere.</p>
             </div>
         </div>
     </body>
@@ -88,7 +88,7 @@ export async function sendWelcomeEmail(to: string, username: string): Promise<vo
 }
 
 function buildLoginEmail(username: string): { subject: string; html: string } {
-    const subject = 'New login to your CloudCodeX account';
+    const subject = 'New login to your CodeSphere account';
     const loginTime = new Date().toLocaleString('en-US', {
         dateStyle: 'medium',
         timeStyle: 'short'
@@ -116,15 +116,15 @@ function buildLoginEmail(username: string): { subject: string; html: string } {
         <div class="container">
             <div class="card">
                 <h1>Hello, ${escapeHtml(username)}!</h1>
-                <p>We detected a new login to your <strong>CloudCodeX</strong> account.</p>
+                <p>We detected a new login to your <strong>CodeSphere</strong> account.</p>
                 <div class="info-box">
                     <p><strong>Time:</strong> ${escapeHtml(loginTime)}</p>
                 </div>
-                <a href="${escapeHtml(config.frontend.url)}" style="display:inline-block;background:#4f46e5;color:#ffffff !important;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px;">Open CloudCodeX</a>
+                <a href="${escapeHtml(config.frontend.url)}" style="display:inline-block;background:#4f46e5;color:#ffffff !important;padding:12px 24px;border-radius:6px;text-decoration:none;font-weight:600;margin-top:16px;">Open CodeSphere</a>
                 <p class="warning">If this wasn't you, please change your password immediately or contact our support team.</p>
             </div>
             <div class="footer">
-                <p>You received this email because someone logged into your CloudCodeX account.</p>
+                <p>You received this email because someone logged into your CodeSphere account.</p>
             </div>
         </div>
     </body>

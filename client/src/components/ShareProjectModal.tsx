@@ -114,7 +114,7 @@ export const ShareProjectModal: React.FC<ShareProjectModalProps> = ({
     };
 
     const copyFullInvitation = () => {
-        const text = `CloudCodeX Collaborative Session\nRoom ID: ${projectId}\nPassword: ${roomPassword.trim() || '(No password required)'}\nLink: ${shareUrl}`;
+        const text = `CodeSphere Collaborative Session\nRoom ID: ${projectId}\nPassword: ${roomPassword.trim() || '(No password required)'}\nLink: ${shareUrl}`;
         navigator.clipboard.writeText(text);
         setCopiedInvite(true);
         setTimeout(() => setCopiedInvite(false), 2000);

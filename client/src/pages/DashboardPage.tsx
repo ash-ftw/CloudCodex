@@ -121,9 +121,9 @@ export default function DashboardPage() {
             <header className="dashboard-header">
                 <div className="header-left">
                     <div className="logo-small">
-                        <img src="/favicon.svg" width={28} height={28} alt="CloudCodeX logo" />
+                        <img src="/favicon.svg" width={28} height={28} alt="CodeSphere logo" />
                     </div>
-                    <h1>CloudCodeX</h1>
+                    <h1>CodeSphere</h1>
                 </div>
 
                 <div className="header-right">

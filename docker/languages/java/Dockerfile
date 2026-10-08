@@ -1,11 +1,13 @@
-FROM eclipse-temurin:17-jdk-alpine
+FROM eclipse-temurin:17-jdk
+
 LABEL cloudcodex=true
 
-RUN adduser -D codeuser && \
-    mkdir /code && \
-    chown codeuser:codeuser /code
+RUN adduser --disabled-password --gecos "" codeuser && \
+    mkdir -p /code && \
+    chown -R codeuser:codeuser /code
 
 WORKDIR /code
+
 USER codeuser
 
 CMD ["jshell"]
