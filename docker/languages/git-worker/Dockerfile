@@ -1,4 +1,4 @@
-FROM node:20-alpine
+FROM node:22-alpine
 
 # Install git and ssh
 RUN apk add --no-cache git openssh-client
