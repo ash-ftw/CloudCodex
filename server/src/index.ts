@@ -1,3 +1,9 @@
+import dns from 'dns';
+// Force IPv4-first DNS resolution to prevent IPv6 timeouts (cross-platform)
+if (typeof dns.setDefaultResultOrder === 'function') {
+    dns.setDefaultResultOrder('ipv4first');
+}
+
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -107,7 +113,7 @@ app.set('io', io);
 
 const PORT = config.server.port;
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
     console.log(`
 ╔═══════════════════════════════════════════════════════════╗
 ║                                                           ║
