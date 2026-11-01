@@ -28,7 +28,7 @@ const registerSchema = z.object({
  * POST /api/auth/register
  * Register a new user with auto-confirmed email via Supabase Admin
  */
-router.post('/register', async (req, res: Response, next) => {
+router.post('/register', authLimiter, async (req, res: Response, next) => {
     try {
         const { email, password, username } = registerSchema.parse(req.body);
 
@@ -118,7 +118,7 @@ router.post('/register', async (req, res: Response, next) => {
  * POST /api/auth/login
  * Login with email and password (with auto-confirm fallback for legacy unconfirmed users)
  */
-router.post('/login', async (req, res: Response, next) => {
+router.post('/login', authLimiter, async (req, res: Response, next) => {
     try {
         const { email, password } = loginSchema.parse(req.body);
 

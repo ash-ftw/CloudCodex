@@ -26,8 +26,8 @@ export async function authMiddleware(
         if (authHeader && authHeader.startsWith('Bearer ')) {
             token = authHeader.substring(7);
         }
-        // Fallback to query parameter (for file downloads via window.open)
-        else if (req.query.token && typeof req.query.token === 'string') {
+        // Fallback to query parameter only for safe GET requests (file downloads/exports via window.open)
+        else if (req.method === 'GET' && req.query.token && typeof req.query.token === 'string') {
             token = req.query.token;
         }
 

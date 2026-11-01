@@ -17,8 +17,13 @@ import { getProjectAccess } from '../services/projectAccessService';
 
 const router = Router();
 
-// Track active executions
-const activeExecutions = new Map<string, { process: ChildProcess; userId: string }>();
+// Track active executions (supports both ChildProcess and AbortController)
+interface ActiveExecution {
+    userId: string;
+    process?: ChildProcess;
+    abortController?: AbortController;
+}
+const activeExecutions = new Map<string, ActiveExecution>();
 
 router.use(authMiddleware);
 
@@ -29,9 +34,24 @@ const executeSchema = z.object({
     stdin: z.string().optional()
 });
 
+// Piston API Language Configuration
+const PISTON_LANGUAGES: Record<SupportedLanguage, { language: string; version: string }> = {
+    c: { language: 'c', version: '10.2.0' },
+    cpp: { language: 'c++', version: '10.2.0' },
+    java: { language: 'java', version: '15.0.2' },
+    python: { language: 'python', version: '3.10.0' },
+    javascript: { language: 'javascript', version: '18.15.0' },
+    typescript: { language: 'typescript', version: '5.0.3' },
+    go: { language: 'go', version: '1.16.2' },
+    rust: { language: 'rust', version: '1.50.0' },
+    php: { language: 'php', version: '8.2.3' },
+    ruby: { language: 'ruby', version: '3.0.1' },
+    bash: { language: 'bash', version: '5.2.0' }
+};
+
 /**
  * POST /api/execute
- * Execute code in a Docker container
+ * Execute code via Piston API (production free tier) or Docker CLI (local opt-in)
  */
 router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Response, next) => {
     try {
@@ -70,17 +90,31 @@ router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Respon
         }
         const storageOwnerId = access.ownerId || req.user!.id;
 
-        // Execute in background
-        executeWithDockerCLI(
-            executionId,
-            req.user!.id,
-            storageOwnerId,
-            projectId,
-            filePath,
-            langConfig,
-            stdin,
-            io
-        ).catch(console.error);
+        // Choose execution backend: 'docker' opt-in or default 'piston'
+        const backend = (process.env.EXECUTION_BACKEND || 'piston').toLowerCase();
+        if (backend === 'docker') {
+            executeWithDockerCLI(
+                executionId,
+                req.user!.id,
+                storageOwnerId,
+                projectId,
+                filePath,
+                langConfig,
+                stdin,
+                io
+            ).catch(console.error);
+        } else {
+            executeWithPiston(
+                executionId,
+                req.user!.id,
+                storageOwnerId,
+                projectId,
+                filePath,
+                language as SupportedLanguage,
+                stdin,
+                io
+            ).catch(console.error);
+        }
     } catch (error) {
         next(error);
     }
@@ -103,7 +137,12 @@ router.delete('/:executionId', async (req: AuthenticatedRequest, res: Response, 
             throw new AppError('Access denied', 403, 'FORBIDDEN');
         }
 
-        execution.process.kill('SIGTERM');
+        if (execution.process) {
+            execution.process.kill('SIGTERM');
+        }
+        if (execution.abortController) {
+            execution.abortController.abort();
+        }
         activeExecutions.delete(executionId);
 
         // Update log
@@ -155,8 +194,175 @@ router.get('/:executionId', async (req: AuthenticatedRequest, res: Response, nex
 });
 
 /**
- * Execute code using Docker CLI instead of Dockerode
- * This is more reliable on Windows
+ * Execute code via Piston API (Serverless & Free Tier Friendly)
+ */
+async function executeWithPiston(
+    executionId: string,
+    userId: string,
+    storageOwnerId: string,
+    projectId: string,
+    filePath: string,
+    language: SupportedLanguage,
+    stdin: string | undefined,
+    io: any
+): Promise<void> {
+    const startTime = Date.now();
+    let stdout = '';
+    let stderr = '';
+    let exitCode = 0;
+    let status: ExecutionStatus = 'completed';
+
+    const abortController = new AbortController();
+    activeExecutions.set(executionId, { userId, abortController });
+
+    const timeoutMs = 15_000;
+    const timeoutTimer = setTimeout(() => {
+        abortController.abort();
+    }, timeoutMs);
+
+    try {
+        console.log(`[Piston] Starting execution ${executionId} for ${language} file: ${filePath}`);
+
+        // Download target file from Supabase storage
+        const targetBuffer = await storageService.downloadFile(storageOwnerId, projectId, filePath);
+        const targetContent = targetBuffer.toString('utf-8');
+
+        const pistonLangConfig = PISTON_LANGUAGES[language] || { language, version: '*' };
+        const fileName = path.basename(filePath);
+
+        // Collect project files (up to 10 files for multi-file imports)
+        const pistonFiles: Array<{ name: string; content: string }> = [
+            { name: fileName, content: targetContent }
+        ];
+
+        try {
+            const allFiles = await storageService.listAllFilesRecursive(storageOwnerId, projectId, '', {
+                excludeDirs: ['.git', 'node_modules', '__pycache__', '.next', 'dist']
+            });
+            const secondaryFiles = allFiles
+                .filter(f => !f.isDirectory && f.path !== filePath && (f.size || 0) < 50_000)
+                .slice(0, 8);
+
+            for (const file of secondaryFiles) {
+                try {
+                    const buf = await storageService.downloadFile(storageOwnerId, projectId, file.path);
+                    pistonFiles.push({
+                        name: file.path,
+                        content: buf.toString('utf-8')
+                    });
+                } catch {
+                    // Ignore secondary file download failure
+                }
+            }
+        } catch {
+            // Ignore directory listing failures
+        }
+
+        const pistonUrl = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston/execute';
+        const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+        if (process.env.PISTON_API_KEY) {
+            headers['Authorization'] = `Bearer ${process.env.PISTON_API_KEY}`;
+        }
+
+        const response = await fetch(pistonUrl, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({
+                language: pistonLangConfig.language,
+                version: pistonLangConfig.version,
+                files: pistonFiles,
+                stdin: stdin || '',
+                compile_timeout: 10000,
+                run_timeout: 10000
+            }),
+            signal: abortController.signal
+        });
+
+        clearTimeout(timeoutTimer);
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`Piston API returned HTTP ${response.status}: ${errText.slice(0, 300)}`);
+        }
+
+        const data: any = await response.json();
+
+        // Handle compile step output if present
+        if (data.compile) {
+            if (data.compile.stdout) {
+                stdout += data.compile.stdout;
+                emitExecutionOutput(io, userId, executionId, 'stdout', data.compile.stdout);
+            }
+            if (data.compile.stderr) {
+                stderr += data.compile.stderr;
+                emitExecutionOutput(io, userId, executionId, 'stderr', data.compile.stderr);
+            }
+            if (data.compile.code && data.compile.code !== 0) {
+                exitCode = data.compile.code;
+                status = 'error';
+            }
+        }
+
+        // Handle run step output
+        if (data.run) {
+            if (data.run.stdout) {
+                stdout += data.run.stdout;
+                emitExecutionOutput(io, userId, executionId, 'stdout', data.run.stdout);
+            }
+            if (data.run.stderr) {
+                stderr += data.run.stderr;
+                emitExecutionOutput(io, userId, executionId, 'stderr', data.run.stderr);
+            }
+            exitCode = data.run.code ?? (data.run.signal ? 1 : 0);
+
+            if (data.run.signal === 'SIGKILL' || (data.run.output && data.run.output.includes('Time limit exceeded'))) {
+                status = 'timeout';
+                stderr += '\nExecution timed out';
+                emitExecutionOutput(io, userId, executionId, 'stderr', '\nExecution timed out');
+            } else if (exitCode !== 0 && status !== 'error') {
+                status = 'error';
+            } else if (exitCode === 0 && status !== 'error') {
+                status = 'completed';
+            }
+        }
+    } catch (err: any) {
+        clearTimeout(timeoutTimer);
+        console.error(`[Piston] Execution failed:`, err.message);
+
+        if (err.name === 'AbortError') {
+            status = 'timeout';
+            stderr = 'Execution timed out or was cancelled by user';
+        } else {
+            status = 'error';
+            stderr = err.message || 'Execution error';
+        }
+
+        emitExecutionOutput(io, userId, executionId, 'stderr', stderr);
+    } finally {
+        activeExecutions.delete(executionId);
+        const executionTime = Date.now() - startTime;
+
+        console.log(`[Piston] Execution finished. Status: ${status}, Time: ${executionTime}ms`);
+
+        // Update database execution log
+        await supabaseAdmin
+            .from('execution_logs')
+            .update({
+                status,
+                exit_code: exitCode,
+                execution_time_ms: executionTime,
+                output: stdout.slice(0, 10000),
+                error_output: stderr.slice(0, 10000)
+            })
+            .eq('id', executionId);
+
+        // Emit final status to frontend
+        emitExecutionOutput(io, userId, executionId, 'status', status);
+    }
+}
+
+/**
+ * Execute code using Docker CLI (Optional local development runner)
  */
 async function executeWithDockerCLI(
     executionId: string,
@@ -172,33 +378,23 @@ async function executeWithDockerCLI(
     let stdout = '';
     let stderr = '';
     let exitCode = 0;
-    let status: ExecutionStatus = 'completed' as ExecutionStatus;
+    let status: ExecutionStatus = 'completed';
     let tempDir: string | null = null;
 
     try {
-        console.log(`[Execute] Starting execution ${executionId}`);
-        console.log(`[Execute] Project: ${projectId}`);
-        console.log(`[Execute] File: ${filePath}`);
-
-        // Step 1: Create temporary directory for this execution
+        console.log(`[Execute Docker] Starting execution ${executionId} for ${filePath}`);
         tempDir = path.join(os.tmpdir(), `cloudcodex-${executionId}`);
         await fs.mkdir(tempDir, { recursive: true });
-        console.log(`[Execute] Created temp directory: ${tempDir}`);
 
-        // Step 2: Download project files from cloud storage (excluding .git)
-        console.log(`[Execute] Downloading project files from cloud (owner: ${storageOwnerId})...`);
         const files = await storageService.listAllFilesRecursive(storageOwnerId, projectId, '', {
             excludeDirs: ['.git']
         });
         const sourceFiles = files.filter(f => !f.isDirectory);
-        console.log(`[Execute] Found ${sourceFiles.length} source files to download`);
 
-        // Download files in parallel (batch of 10)
-        let downloadedFiles = 0;
         const BATCH_SIZE = 10;
         for (let i = 0; i < sourceFiles.length; i += BATCH_SIZE) {
             const batch = sourceFiles.slice(i, i + BATCH_SIZE);
-            const results = await Promise.allSettled(
+            await Promise.allSettled(
                 batch.map(async (file) => {
                     const buffer = await storageService.downloadFile(storageOwnerId, projectId, file.path);
                     const localFilePath = path.join(tempDir!, file.path);
@@ -206,89 +402,34 @@ async function executeWithDockerCLI(
                     await fs.writeFile(localFilePath, buffer);
                 })
             );
-            for (const r of results) {
-                if (r.status === 'fulfilled') downloadedFiles++;
-                else console.warn(`[Execute] Failed to download file:`, r.reason);
-            }
-        }
-        console.log(`[Execute] Downloaded ${downloadedFiles} files to temp directory`);
-
-        // Verify target file exists
-        const verifyFiles = async (dir: string, prefix = ''): Promise<string[]> => {
-            const entries = await fs.readdir(dir, { withFileTypes: true });
-            const result: string[] = [];
-            for (const entry of entries) {
-                const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
-                if (entry.isDirectory()) {
-                    result.push(...await verifyFiles(path.join(dir, entry.name), rel));
-                } else {
-                    result.push(rel);
-                }
-            }
-            return result;
-        };
-        const tempFiles = await verifyFiles(tempDir!);
-
-        if (!tempFiles.some(f => f.replace(/\\/g, '/') === filePath.replace(/\\/g, '/'))) {
-            console.warn(`[Execute] Target file '${filePath}' not found after recursive listing. Attempting direct download...`);
-            try {
-                const buffer = await storageService.downloadFile(storageOwnerId, projectId, filePath);
-                const localFilePath = path.join(tempDir, filePath);
-                await fs.mkdir(path.dirname(localFilePath), { recursive: true });
-                await fs.writeFile(localFilePath, buffer);
-                console.log(`[Execute] ✓ Direct download of '${filePath}' succeeded`);
-            } catch (err) {
-                console.error(`[Execute] ✗ Direct download of '${filePath}' also failed:`, err);
-            }
         }
 
-        // Step 3: Prepare Docker execution
-        // Get the actual filename from the path
         const fileName = filePath.split('/').pop() || filePath;
         const fileInContainer = `/code/${filePath}`;
-        // Extract class name from filename (e.g., "AddNumbers.java" -> "AddNumbers")
         const className = fileName.replace(/\.[^.]+$/, '');
-
-        // Build command with actual file path (quote paths for sh -c)
         const quotedFile = fileInContainer.replace(/'/g, "'\\''");
+
         let command = '';
         if (langConfig.compileCommand) {
-            // Replace placeholder paths in compile command
             const compileCmd = langConfig.compileCommand
                 .replace(/\/code\/main\.[a-z]+/g, `'${quotedFile}'`)
                 .replace(/Main\.java/g, fileName);
-            // Replace hardcoded class name in run command (e.g., "Main" -> "AddNumbers")
-            const runCmd = langConfig.runCommand
-                .replace(/\bMain\b/g, className);
+            const runCmd = langConfig.runCommand.replace(/\bMain\b/g, className);
             command = `${compileCmd} && ${runCmd}`;
         } else {
-            // Replace placeholder paths in run command
             command = langConfig.runCommand.replace(/\/code\/main\.[a-z]+/g, `'${quotedFile}'`);
         }
 
-        // stdin will be piped directly to the Docker process below
-
-        let dockerPath = tempDir!;  // Use temporary directory
+        let dockerPath = tempDir;
         if (process.platform === 'win32') {
-            // Convert backslashes to forward slashes
-            dockerPath = tempDir!.replace(/\\/g, '/');
-            // Convert drive letter: C:/... -> /c/...
-            dockerPath = dockerPath.replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
+            dockerPath = tempDir.replace(/\\/g, '/').replace(/^([A-Za-z]):/, (_, drive) => `/${drive.toLowerCase()}`);
         }
 
         const memoryMb = parseInt(langConfig.memoryLimit);
-
-        console.log(`[Execute] Starting execution ${executionId}`);
-        console.log(`[Execute] Docker path: ${dockerPath}`);
-        console.log(`[Execute] File: ${filePath}`);
-        console.log(`[Execute] Command: ${command}`);
-        console.log(`[Execute] Image: ${langConfig.dockerImage}`);
-
-        // Build docker run arguments
         const dockerArgs = [
             'run',
             '--rm',
-            '-i', // Enable interactive mode for stdin
+            '-i',
             '-e', 'PYTHONUNBUFFERED=1',
             '-v', `${dockerPath}:/code:ro`,
             '-w', '/code',
@@ -299,41 +440,30 @@ async function executeWithDockerCLI(
             'sh', '-c', command
         ];
 
-        console.log(`[Execute] Docker args: docker ${dockerArgs.join(' ')}`);
-
-        // Spawn Docker process
         const dockerProcess = spawn('docker', dockerArgs);
         activeExecutions.set(executionId, { process: dockerProcess, userId });
 
-        // Pipe stdin if provided, and always close stdin stream
         if (stdin && stdin.trim()) {
-            // Ensure stdin ends with newline for scanf/input functions
             const stdinWithNewline = stdin.endsWith('\n') ? stdin : stdin + '\n';
-            console.log(`[Execute] Piping stdin: ${JSON.stringify(stdinWithNewline)}`);
             dockerProcess.stdin.write(stdinWithNewline);
         }
-        // Always close stdin so programs waiting for input get EOF instead of hanging
         dockerProcess.stdin.end();
 
-        // Handle stdout
         dockerProcess.stdout.on('data', (data: Buffer) => {
             const text = data.toString();
-            console.log(`[Execute] stdout: ${text}`);
             stdout += text;
             emitExecutionOutput(io, userId, executionId, 'stdout', text);
         });
 
-        // Handle stderr
         dockerProcess.stderr.on('data', (data: Buffer) => {
             const text = data.toString();
-            console.log(`[Execute] stderr: ${text}`);
             stderr += text;
             emitExecutionOutput(io, userId, executionId, 'stderr', text);
         });
 
-        // Set up timeout
+        let isTimeout = false;
         const timeoutId = setTimeout(() => {
-            console.log(`[Execute] Timeout reached, killing process...`);
+            isTimeout = true;
             dockerProcess.kill('SIGTERM');
             status = 'timeout';
             stderr += '\nExecution timed out';
@@ -342,58 +472,42 @@ async function executeWithDockerCLI(
         // Wait for process to finish
         exitCode = await new Promise<number>((resolve) => {
             dockerProcess.on('close', (code) => {
-                console.log(`[Execute] Process exited with code: ${code}`);
                 clearTimeout(timeoutId);
                 resolve(code ?? 1);
             });
-
             dockerProcess.on('error', (err) => {
-                console.error(`[Execute] Process error: ${err.message}`);
                 clearTimeout(timeoutId);
                 stderr += `\nProcess error: ${err.message}`;
                 resolve(1);
             });
         });
 
-        if (exitCode !== 0 && status !== 'timeout') {
+        if (exitCode !== 0 && !isTimeout) {
             status = 'error';
         }
-    } catch (error) {
-        console.error(`[Execute] Error: ${(error as Error).message}`);
+    } catch (error: any) {
         status = 'error';
-        stderr = (error as Error).message;
+        stderr = error.message;
         emitExecutionOutput(io, userId, executionId, 'stderr', stderr);
     } finally {
         activeExecutions.delete(executionId);
         const executionTime = Date.now() - startTime;
 
-        console.log(`[Execute] Execution finished. Status: ${status}, Time: ${executionTime}ms`);
-
-        // Cleanup temporary directory
         if (tempDir) {
-            try {
-                await fs.rm(tempDir, { recursive: true, force: true });
-                console.log(`[Execute] Cleaned up temp directory: ${tempDir}`);
-            } catch (err) {
-                console.error(`[Execute] Failed to cleanup temp directory:`, err);
-            }
+            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
         }
 
-        console.log(`[Execute] Execution finished. Status: ${status}, Time: ${executionTime}ms`);
-
-        // Update execution log
         await supabaseAdmin
             .from('execution_logs')
             .update({
                 status,
                 exit_code: exitCode,
                 execution_time_ms: executionTime,
-                output: stdout.slice(0, 10000), // Limit stored output
+                output: stdout.slice(0, 10000),
                 error_output: stderr.slice(0, 10000)
             })
             .eq('id', executionId);
 
-        // Emit final status
         emitExecutionOutput(io, userId, executionId, 'status', status);
     }
 }

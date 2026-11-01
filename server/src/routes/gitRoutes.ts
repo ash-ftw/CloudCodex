@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { authMiddleware } from '../middleware/authMiddleware';
+import { gitLimiter } from '../middleware/rateLimiter';
 import {
     validatePushPrerequisites,
     checkGitRepo,
@@ -26,6 +27,7 @@ import {
 const router = Router();
 
 router.use(authMiddleware);
+router.use(gitLimiter);
 
 // ── Repository Setup ───────────────────────────────────────────────────────
 
