@@ -51,7 +51,7 @@ const PISTON_LANGUAGES: Record<SupportedLanguage, { language: string; version: s
 
 /**
  * POST /api/execute
- * Execute code via Piston API (production free tier) or Docker CLI (local opt-in)
+ * Execute code via Piston API, Local native runner, or Docker CLI
  */
 router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Response, next) => {
     try {
@@ -83,14 +83,14 @@ router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Respon
             }
         });
 
-        // Resolve the project owner — files are stored under the owner's userId
+        // Resolve project owner
         const access = await getProjectAccess(req.user!.id, projectId);
         if (!access.hasAccess) {
             throw new AppError('Access denied to this project', 403, 'FORBIDDEN');
         }
         const storageOwnerId = access.ownerId || req.user!.id;
 
-        // Choose execution backend: 'docker' opt-in or default 'piston'
+        // Route to requested backend
         const backend = (process.env.EXECUTION_BACKEND || 'piston').toLowerCase();
         if (backend === 'docker') {
             executeWithDockerCLI(
@@ -100,6 +100,17 @@ router.post('/', executionLimiter, async (req: AuthenticatedRequest, res: Respon
                 projectId,
                 filePath,
                 langConfig,
+                stdin,
+                io
+            ).catch(console.error);
+        } else if (backend === 'local') {
+            executeWithLocalProcess(
+                executionId,
+                req.user!.id,
+                storageOwnerId,
+                projectId,
+                filePath,
+                language as SupportedLanguage,
                 stdin,
                 io
             ).catch(console.error);
@@ -194,7 +205,7 @@ router.get('/:executionId', async (req: AuthenticatedRequest, res: Response, nex
 });
 
 /**
- * Execute code via Piston API (Serverless & Free Tier Friendly)
+ * Execute code via Piston API with automatic fallback to native local process runner
  */
 async function executeWithPiston(
     executionId: string,
@@ -223,14 +234,12 @@ async function executeWithPiston(
     try {
         console.log(`[Piston] Starting execution ${executionId} for ${language} file: ${filePath}`);
 
-        // Download target file from Supabase storage
         const targetBuffer = await storageService.downloadFile(storageOwnerId, projectId, filePath);
         const targetContent = targetBuffer.toString('utf-8');
 
         const pistonLangConfig = PISTON_LANGUAGES[language] || { language, version: '*' };
         const fileName = path.basename(filePath);
 
-        // Collect project files (up to 10 files for multi-file imports)
         const pistonFiles: Array<{ name: string; content: string }> = [
             { name: fileName, content: targetContent }
         ];
@@ -250,13 +259,9 @@ async function executeWithPiston(
                         name: file.path,
                         content: buf.toString('utf-8')
                     });
-                } catch {
-                    // Ignore secondary file download failure
-                }
+                } catch {}
             }
-        } catch {
-            // Ignore directory listing failures
-        }
+        } catch {}
 
         const pistonUrl = process.env.PISTON_API_URL || 'https://emkc.org/api/v2/piston/execute';
         const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -282,12 +287,21 @@ async function executeWithPiston(
 
         if (!response.ok) {
             const errText = await response.text();
-            throw new Error(`Piston API returned HTTP ${response.status}: ${errText.slice(0, 300)}`);
+            console.warn(`[Piston] API returned ${response.status}: ${errText.slice(0, 120)}. Falling back to native local process runner...`);
+            return executeWithLocalProcess(
+                executionId,
+                userId,
+                storageOwnerId,
+                projectId,
+                filePath,
+                language,
+                stdin,
+                io
+            );
         }
 
         const data: any = await response.json();
 
-        // Handle compile step output if present
         if (data.compile) {
             if (data.compile.stdout) {
                 stdout += data.compile.stdout;
@@ -303,7 +317,6 @@ async function executeWithPiston(
             }
         }
 
-        // Handle run step output
         if (data.run) {
             if (data.run.stdout) {
                 stdout += data.run.stdout;
@@ -327,24 +340,28 @@ async function executeWithPiston(
         }
     } catch (err: any) {
         clearTimeout(timeoutTimer);
-        console.error(`[Piston] Execution failed:`, err.message);
 
         if (err.name === 'AbortError') {
             status = 'timeout';
             stderr = 'Execution timed out or was cancelled by user';
+            emitExecutionOutput(io, userId, executionId, 'stderr', stderr);
         } else {
-            status = 'error';
-            stderr = err.message || 'Execution error';
+            console.warn(`[Piston] Network/runtime error (${err.message}). Falling back to native local process runner...`);
+            return executeWithLocalProcess(
+                executionId,
+                userId,
+                storageOwnerId,
+                projectId,
+                filePath,
+                language,
+                stdin,
+                io
+            );
         }
-
-        emitExecutionOutput(io, userId, executionId, 'stderr', stderr);
     } finally {
         activeExecutions.delete(executionId);
         const executionTime = Date.now() - startTime;
 
-        console.log(`[Piston] Execution finished. Status: ${status}, Time: ${executionTime}ms`);
-
-        // Update database execution log
         await supabaseAdmin
             .from('execution_logs')
             .update({
@@ -356,7 +373,144 @@ async function executeWithPiston(
             })
             .eq('id', executionId);
 
-        // Emit final status to frontend
+        emitExecutionOutput(io, userId, executionId, 'status', status);
+    }
+}
+
+/**
+ * Execute code using native host process with full stdin support
+ */
+async function executeWithLocalProcess(
+    executionId: string,
+    userId: string,
+    storageOwnerId: string,
+    projectId: string,
+    filePath: string,
+    language: SupportedLanguage,
+    stdin: string | undefined,
+    io: any
+): Promise<void> {
+    const startTime = Date.now();
+    let stdout = '';
+    let stderr = '';
+    let exitCode = 0;
+    let status: ExecutionStatus = 'completed';
+    let tempDir: string | null = null;
+
+    try {
+        console.log(`[LocalRunner] Starting native execution ${executionId} for ${language} file: ${filePath}`);
+        tempDir = path.join(os.tmpdir(), `cloudcodex-local-${executionId}`);
+        await fs.mkdir(tempDir, { recursive: true });
+
+        const targetBuffer = await storageService.downloadFile(storageOwnerId, projectId, filePath);
+        const localTarget = path.join(tempDir, filePath);
+        await fs.mkdir(path.dirname(localTarget), { recursive: true });
+        await fs.writeFile(localTarget, targetBuffer);
+
+        try {
+            const files = await storageService.listAllFilesRecursive(storageOwnerId, projectId, '', {
+                excludeDirs: ['.git', 'node_modules']
+            });
+            for (const f of files.filter(f => !f.isDirectory && f.path !== filePath && (f.size || 0) < 50_000).slice(0, 8)) {
+                const b = await storageService.downloadFile(storageOwnerId, projectId, f.path);
+                const lp = path.join(tempDir, f.path);
+                await fs.mkdir(path.dirname(lp), { recursive: true });
+                await fs.writeFile(lp, b);
+            }
+        } catch {}
+
+        let cmd = '';
+        let args: string[] = [];
+
+        if (language === 'python') {
+            cmd = process.platform === 'win32' ? 'python' : 'python3';
+            args = ['-u', localTarget];
+        } else if (language === 'javascript') {
+            cmd = 'node';
+            args = [localTarget];
+        } else if (language === 'typescript') {
+            cmd = 'npx';
+            args = ['tsx', localTarget];
+        } else if (language === 'bash') {
+            cmd = 'bash';
+            args = [localTarget];
+        } else if (language === 'java') {
+            cmd = 'java';
+            args = [localTarget];
+        } else {
+            throw new Error(`Runtime for '${language}' is not installed locally. Please configure a custom PISTON_API_URL or run with Docker.`);
+        }
+
+        const proc = spawn(cmd, args, {
+            cwd: tempDir,
+            windowsHide: true,
+            env: { ...process.env, PYTHONUNBUFFERED: '1' }
+        });
+
+        activeExecutions.set(executionId, { userId, process: proc });
+
+        // Pipe stdin if provided, and always end stream to signal EOF
+        if (stdin && stdin.trim()) {
+            const stdinWithNewline = stdin.endsWith('\n') ? stdin : stdin + '\n';
+            proc.stdin.write(stdinWithNewline);
+        }
+        proc.stdin.end();
+
+        proc.stdout.on('data', (data: Buffer) => {
+            const text = data.toString();
+            stdout += text;
+            emitExecutionOutput(io, userId, executionId, 'stdout', text);
+        });
+
+        proc.stderr.on('data', (data: Buffer) => {
+            const text = data.toString();
+            stderr += text;
+            emitExecutionOutput(io, userId, executionId, 'stderr', text);
+        });
+
+        let isTimeout = false;
+        const timer = setTimeout(() => {
+            isTimeout = true;
+            proc.kill('SIGTERM');
+            stderr += '\nExecution timed out';
+        }, 15000);
+
+        exitCode = await new Promise<number>((resolve) => {
+            proc.on('close', (code) => {
+                clearTimeout(timer);
+                resolve(code ?? 1);
+            });
+            proc.on('error', (err) => {
+                clearTimeout(timer);
+                stderr += `\nRuntime process error: ${err.message}`;
+                resolve(1);
+            });
+        });
+
+        status = isTimeout ? 'timeout' : (exitCode === 0 ? 'completed' : 'error');
+    } catch (err: any) {
+        status = 'error';
+        stderr = err.message || 'Execution failed';
+        emitExecutionOutput(io, userId, executionId, 'stderr', stderr);
+    } finally {
+        activeExecutions.delete(executionId);
+        const executionTime = Date.now() - startTime;
+
+        if (tempDir) {
+            await fs.rm(tempDir, { recursive: true, force: true }).catch(() => {});
+        }
+
+        await supabaseAdmin
+            .from('execution_logs')
+            .update({
+                status,
+                exit_code: exitCode,
+                execution_time_ms: executionTime,
+                output: stdout.slice(0, 10000),
+                error_output: stderr.slice(0, 10000)
+            })
+            .eq('id', executionId);
+
         emitExecutionOutput(io, userId, executionId, 'status', status);
     }
 }
@@ -469,7 +623,6 @@ async function executeWithDockerCLI(
             stderr += '\nExecution timed out';
         }, langConfig.timeout);
 
-        // Wait for process to finish
         exitCode = await new Promise<number>((resolve) => {
             dockerProcess.on('close', (code) => {
                 clearTimeout(timeoutId);
