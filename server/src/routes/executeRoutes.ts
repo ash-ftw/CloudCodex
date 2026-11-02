@@ -422,7 +422,56 @@ async function executeWithLocalProcess(
         let cmd = '';
         let args: string[] = [];
 
-        if (language === 'python') {
+        const workingDir = tempDir;
+
+        if (language === 'c' || language === 'cpp') {
+            const compiler = language === 'c' ? 'gcc' : 'g++';
+            const binaryName = process.platform === 'win32' ? 'program.exe' : 'program.out';
+            const binaryPath = path.join(workingDir, binaryName);
+            const compileArgs = language === 'c'
+                ? ['-O2', localTarget, '-o', binaryPath, '-lm']
+                : ['-O2', '-std=c++17', localTarget, '-o', binaryPath, '-lm'];
+
+            console.log(`[LocalRunner] Compiling ${language} with ${compiler}: ${compileArgs.join(' ')}`);
+
+            const compileResult = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+                const compProc = spawn(compiler, compileArgs, { cwd: workingDir });
+                activeExecutions.set(executionId, { userId, process: compProc });
+
+                let compStderr = '';
+                if (compProc.stderr) {
+                    compProc.stderr.on('data', (d: Buffer) => {
+                        const text = d.toString();
+                        compStderr += text;
+                        emitExecutionOutput(io, userId, executionId, 'stderr', text);
+                    });
+                }
+                if (compProc.stdout) {
+                    compProc.stdout.on('data', (d: Buffer) => {
+                        const text = d.toString();
+                        compStderr += text;
+                        emitExecutionOutput(io, userId, executionId, 'stdout', text);
+                    });
+                }
+                compProc.on('error', (err: Error) => {
+                    resolve({ code: -1, stderr: `Compiler '${compiler}' error: ${err.message}` });
+                });
+                compProc.on('close', (code: number | null) => {
+                    resolve({ code, stderr: compStderr });
+                });
+            });
+
+            if (compileResult.code !== 0) {
+                exitCode = compileResult.code || 1;
+                status = 'error';
+                stderr = compileResult.stderr || 'Compilation failed';
+                return;
+            }
+
+            await fs.chmod(binaryPath, 0o755).catch(() => {});
+            cmd = binaryPath;
+            args = [];
+        } else if (language === 'python') {
             cmd = process.platform === 'win32' ? 'python' : 'python3';
             args = ['-u', localTarget];
         } else if (language === 'javascript') {
@@ -437,12 +486,37 @@ async function executeWithLocalProcess(
         } else if (language === 'java') {
             cmd = 'java';
             args = [localTarget];
+        } else if (language === 'go') {
+            cmd = 'go';
+            args = ['run', localTarget];
+        } else if (language === 'rust') {
+            const binaryName = process.platform === 'win32' ? 'program.exe' : 'program.out';
+            const binaryPath = path.join(workingDir, binaryName);
+            const compResult = await new Promise<{ code: number | null; stderr: string }>((resolve) => {
+                const compProc = spawn('rustc', ['-O', localTarget, '-o', binaryPath], { cwd: workingDir });
+                activeExecutions.set(executionId, { userId, process: compProc });
+                let compStderr = '';
+                if (compProc.stderr) {
+                    compProc.stderr.on('data', (d: Buffer) => { compStderr += d.toString(); });
+                }
+                compProc.on('error', (err: Error) => resolve({ code: -1, stderr: `rustc compiler error: ${err.message}` }));
+                compProc.on('close', (code: number | null) => resolve({ code, stderr: compStderr }));
+            });
+            if (compResult.code !== 0) {
+                exitCode = compResult.code || 1;
+                status = 'error';
+                stderr = compResult.stderr || 'Rust compilation failed';
+                return;
+            }
+            await fs.chmod(binaryPath, 0o755).catch(() => {});
+            cmd = binaryPath;
+            args = [];
         } else {
             throw new Error(`Runtime for '${language}' is not installed locally. Please configure a custom PISTON_API_URL or run with Docker.`);
         }
 
         const proc = spawn(cmd, args, {
-            cwd: tempDir,
+            cwd: workingDir,
             windowsHide: true,
             env: { ...process.env, PYTHONUNBUFFERED: '1' }
         });
