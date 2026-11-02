@@ -239,7 +239,7 @@ async function executeWithJudge0(
         const sourceCodeB64 = Buffer.from(sourceCode).toString('base64');
         const stdinB64 = stdin ? Buffer.from(stdin).toString('base64') : '';
 
-        const apiUrl = (config.judge0.apiUrl || 'https://judge0-ce.p.rapidapi.com').replace(/\/+$/, '');
+        const apiUrl = (config.judge0.apiUrl || 'https://api.onlinecompiler.io/api/judge0').replace(/\/+$/, '');
         const apiKey = config.judge0.apiKey;
         const isRapidApi = apiUrl.includes('rapidapi.com');
 
@@ -247,14 +247,16 @@ async function executeWithJudge0(
             'Content-Type': 'application/json'
         };
 
+        if (!apiKey) {
+            throw new Error('Judge0 API key is not configured for production. Please add JUDGE0_API_KEY (from https://onlinecompiler.io for 100k free runs, or RapidAPI) to your Render environment variables.');
+        }
+
         if (isRapidApi) {
-            if (!apiKey) {
-                throw new Error('Judge0 API key is not configured for production. Please add JUDGE0_API_KEY (from RapidAPI Judge0 CE) or set JUDGE0_API_URL to your self-hosted Judge0 instance in Render environment variables.');
-            }
             headers['X-RapidAPI-Key'] = apiKey;
             headers['X-RapidAPI-Host'] = config.judge0.apiHost || new URL(apiUrl).hostname;
-        } else if (apiKey) {
+        } else {
             headers['X-Auth-Token'] = apiKey;
+            headers['Authorization'] = apiKey;
         }
 
         const response = await fetch(`${apiUrl}/submissions?base64_encoded=true&wait=true`, {

@@ -180,9 +180,9 @@ export const config = {
         from: process.env.SMTP_FROM || 'CloudCodeX <noreply@cloudcodex.com>'
     },
     judge0: {
-        apiUrl: process.env.JUDGE0_API_URL || 'https://judge0-ce.p.rapidapi.com',
+        apiUrl: process.env.JUDGE0_API_URL || 'https://api.onlinecompiler.io/api/judge0',
         apiKey: process.env.JUDGE0_API_KEY || process.env.RAPIDAPI_KEY || '',
-        apiHost: process.env.JUDGE0_API_HOST || 'judge0-ce.p.rapidapi.com'
+        apiHost: process.env.JUDGE0_API_HOST || ''
     }
 };
 
