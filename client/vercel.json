@@ -1,16 +1,11 @@
 {
-  "cleanUrls": true,
   "rewrites": [
     {
       "source": "/landing",
       "destination": "/landing/index.html"
     },
     {
-      "source": "/landing/:match*",
-      "destination": "/landing/:match*"
-    },
-    {
-      "source": "/((?!landing|assets|favicon.svg|logo.jpeg).*)",
+      "source": "/(.*)",
       "destination": "/index.html"
     }
   ]
