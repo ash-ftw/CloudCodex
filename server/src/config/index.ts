@@ -178,6 +178,11 @@ export const config = {
         user: process.env.SMTP_USER || '',
         pass: process.env.SMTP_PASS || '',
         from: process.env.SMTP_FROM || 'CloudCodeX <noreply@cloudcodex.com>'
+    },
+    judge0: {
+        apiUrl: process.env.JUDGE0_API_URL || 'https://judge0-ce.p.rapidapi.com',
+        apiKey: process.env.JUDGE0_API_KEY || process.env.RAPIDAPI_KEY || '',
+        apiHost: process.env.JUDGE0_API_HOST || 'judge0-ce.p.rapidapi.com'
     }
 };
 
