@@ -46,7 +46,7 @@ export default function AdminPage() {
                 </div>
                 <div className="header-right">
                     <span style={{ fontSize: '0.75rem', color: 'var(--text-muted)' }}>
-                        CodeSphere Admin
+                        CloudCodeX Admin
                     </span>
                     <SettingsDropdown />
                 </div>

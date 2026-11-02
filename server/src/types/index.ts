@@ -1,4 +1,4 @@
-// Core TypeScript types for CodeSphere
+// Core TypeScript types for CloudCodeX
 
 export interface User {
     id: string;
