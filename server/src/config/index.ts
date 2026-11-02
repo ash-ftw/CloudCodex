@@ -150,12 +150,12 @@ export const config = {
     github: {
         clientId: process.env.GITHUB_CLIENT_ID || '',
         clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
-        callbackUrl: process.env.GITHUB_CALLBACK_URL || 'http://localhost:3001/api/auth/github/callback'
+        callbackUrl: process.env.GITHUB_CALLBACK_URL || (process.env.NODE_ENV === 'production' || process.env.RENDER ? 'https://cloudcodex-server.onrender.com/api/auth/github/callback' : 'http://localhost:3001/api/auth/github/callback')
     },
     google: {
         clientId: process.env.GOOGLE_CLIENT_ID || '',
         clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
-        callbackUrl: process.env.GOOGLE_CALLBACK_URL || 'http://localhost:3001/api/auth/google/callback'
+        callbackUrl: process.env.GOOGLE_CALLBACK_URL || (process.env.NODE_ENV === 'production' || process.env.RENDER ? 'https://cloudcodex-server.onrender.com/api/auth/google/callback' : 'http://localhost:3001/api/auth/google/callback')
     },
     docker: {
         socket: process.env.DOCKER_SOCKET || (process.platform === 'win32' ? '//./pipe/docker_engine' : '/var/run/docker.sock'),
@@ -169,7 +169,7 @@ export const config = {
         maxStoragePerUserMb: parseInt(process.env.MAX_STORAGE_PER_USER_MB || '500', 10)
     },
     frontend: {
-        url: process.env.FRONTEND_URL || 'http://localhost:5173'
+        url: process.env.FRONTEND_URL || (process.env.NODE_ENV === 'production' || process.env.RENDER ? 'https://cloudcodex.vercel.app' : 'http://localhost:5173')
     },
     smtp: {
         host: process.env.SMTP_HOST || '',

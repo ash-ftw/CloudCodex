@@ -189,6 +189,9 @@ router.post('/login', authLimiter, async (req, res: Response, next) => {
  * Initiate GitHub OAuth flow (for login)
  */
 router.get('/github', (_req, res: Response) => {
+    if (!config.github.clientId) {
+        return res.redirect(`${config.frontend.url}/login?error=${encodeURIComponent('GitHub OAuth is not configured on the server. Please set GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET on Render.')}`);
+    }
     const state = JSON.stringify({ action: 'login', nonce: Math.random().toString(36).substring(7) });
     const params = new URLSearchParams({
         client_id: config.github.clientId,
@@ -421,8 +424,9 @@ router.get('/github/callback', async (req, res: Response, next) => {
         );
 
         res.redirect(`${config.frontend.url}/auth/callback?token=${token}`);
-    } catch (error) {
-        next(error);
+    } catch (error: any) {
+        console.error('GitHub OAuth callback error:', error);
+        res.redirect(`${config.frontend.url}/login?error=${encodeURIComponent(error.message || 'GitHub authentication failed')}`);
     }
 });
 
@@ -455,6 +459,9 @@ router.get('/github/link', (req, res: Response) => {
  * GET /api/auth/google
  */
 router.get('/google', (_req, res: Response) => {
+    if (!config.google.clientId) {
+        return res.redirect(`${config.frontend.url}/login?error=${encodeURIComponent('Google OAuth is not configured on the server. Please set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET on Render.')}`);
+    }
     const state = JSON.stringify({ action: 'login', nonce: Math.random().toString(36).substring(7) });
     const params = new URLSearchParams({
         client_id: config.google.clientId,
@@ -728,8 +735,9 @@ router.get('/google/callback', async (req, res: Response, next) => {
         );
 
         res.redirect(`${config.frontend.url}/auth/callback?token=${token}`);
-    } catch (error) {
-        next(error);
+    } catch (error: any) {
+        console.error('Google OAuth callback error:', error);
+        res.redirect(`${config.frontend.url}/login?error=${encodeURIComponent(error.message || 'Google authentication failed')}`);
     }
 });
 

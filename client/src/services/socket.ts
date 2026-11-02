@@ -7,7 +7,9 @@ export function getSocket(): Socket {
     if (!socket) {
         const token = useAuthStore.getState().token;
 
-        socket = io('/', {
+        const socketUrl = import.meta.env.VITE_SOCKET_URL || (import.meta.env.PROD ? 'https://cloudcodex-server.onrender.com' : '/');
+
+        socket = io(socketUrl, {
             auth: { token },
             transports: ['websocket', 'polling']
         });

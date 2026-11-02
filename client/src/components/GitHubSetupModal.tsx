@@ -169,7 +169,8 @@ export default function GitHubSetupModal({
             showAlert('Please log in first', 'info', 'Authentication Required');
             return;
         }
-        window.location.href = `${window.location.origin}/api/auth/github/link?userId=${userId}`;
+        const apiUrl = import.meta.env.VITE_API_URL || '/api';
+        window.location.href = `${apiUrl}/auth/github/link?userId=${userId}`;
     };
 
     const handleAddRemote = async () => {

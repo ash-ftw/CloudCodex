@@ -29,7 +29,7 @@ interface ProfileState {
     clearError: () => void;
 }
 
-const API_URL = '/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 
 export const useProfileStore = create<ProfileState>()((set, get) => ({
     profile: null,

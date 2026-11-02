@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useAuthStore } from '../store/authStore';
 import { Github, Mail, Lock, User, ArrowRight, Rocket, Shield, Zap } from 'lucide-react';
 import SettingsDropdown from '../components/SettingsDropdown';
@@ -7,6 +7,7 @@ import '../styles/login.css';
 
 export default function LoginPage() {
     const navigate = useNavigate();
+    const [searchParams] = useSearchParams();
     const { login, register, loginWithGitHub, loginWithGoogle, isLoading } = useAuthStore();
 
     const [isRegister, setIsRegister] = useState(false);
@@ -14,6 +15,13 @@ export default function LoginPage() {
     const [password, setPassword] = useState('');
     const [username, setUsername] = useState('');
     const [error, setError] = useState('');
+
+    useEffect(() => {
+        const urlError = searchParams.get('error');
+        if (urlError) {
+            setError(decodeURIComponent(urlError));
+        }
+    }, [searchParams]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();

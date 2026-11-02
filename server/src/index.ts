@@ -28,10 +28,23 @@ import { setupSocketHandlers } from './services/socketService';
 const app = express();
 const httpServer = createServer(app);
 
+const allowedOrigins = [
+    config.frontend.url,
+    'https://cloudcodex.vercel.app',
+    'http://localhost:5173',
+    'http://localhost:3000'
+].filter(Boolean);
+
 // Socket.IO setup
 const io = new SocketIOServer(httpServer, {
     cors: {
-        origin: config.frontend.url,
+        origin: (origin, callback) => {
+            if (!origin || allowedOrigins.includes(origin) || (typeof origin === 'string' && origin.endsWith('.vercel.app'))) {
+                callback(null, true);
+            } else {
+                callback(null, true);
+            }
+        },
         methods: ['GET', 'POST'],
         credentials: true
     }
@@ -56,7 +69,13 @@ app.use(helmet({
     }
 }));
 app.use(cors({
-    origin: config.frontend.url,
+    origin: (origin, callback) => {
+        if (!origin || allowedOrigins.includes(origin) || (typeof origin === 'string' && origin.endsWith('.vercel.app'))) {
+            callback(null, true);
+        } else {
+            callback(null, true);
+        }
+    },
     credentials: true
 }));
 
