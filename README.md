@@ -1,184 +1,190 @@
-# CloudCodeX
+<div align="center">
 
-CloudCodeX is a cloud-based, multi-language IDE with a React + Vite frontend and a Node.js + Express backend. It provides a Monaco-powered editor, project/file management, execution in Docker containers, and Git operations through a dedicated worker container. Authentication, profiles, and file storage integrate with Supabase.
+# ☁️ CloudCodeX
 
-## Features
-- Multi-language code execution in isolated Docker containers (C, C++, Java, Python, JavaScript, TypeScript, Go, Rust, PHP, Ruby, Bash)
-- Monaco editor UI with project/file management
-- Real-time multi-user collaboration with live cursor presence, user selection, and jump-to-collaborator navigation
-- Role-based access control (`owner`, `editor`, `viewer`) for shared workspaces
-- Room management with shareable Room IDs and optional password protection
-- File version history and snapshot management with point-in-time restore
-- Real-time execution output and file updates via Socket.IO
-- Git operations in a Docker worker container (clone, status, commit, push)
-- Supabase Auth + Storage integration
-- Admin and profile pages
-- Landing page served at /landing in dev and production
+### Next-Generation Cloud IDE & Real-Time Collaborative Code Execution Engine
 
-## Real-time collaboration & room management
-CloudCodeX includes built-in real-time collaboration and workspace sharing:
-- **Live Presence & Cursors:** Collaborators are assigned distinct colors with active file badges in the header bar. Click any collaborator badge to immediately jump to their active file and cursor.
-- **Role-Based Access Control:**
-  - `owner`: Full control over project settings, collaborators, and room security.
-  - `editor`: Can edit code, execute files, and create/manage version snapshots.
-  - `viewer`: Read-only access to files and editor with visual indicator badges.
-- **Room Sharing & Passwords:** Share projects via direct collaborator invites or generate a unique Room ID with an optional password. Other users can join directly from the dashboard via the "Join Room" modal.
-- **Version History & Snapshots:** Capture named revisions or browse automatic snapshots for each file with diffing and instant restoration.
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![GitHub Stars](https://img.shields.io/github/stars/ash-ftw/CloudCodex?style=social)](https://github.com/ash-ftw/CloudCodex/stargazers)
+[![GitHub Forks](https://img.shields.io/github/forks/ash-ftw/CloudCodex?style=social)](https://github.com/ash-ftw/CloudCodex/network/members)
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-cloudcodex.vercel.app-brightgreen?logo=vercel)](https://cloudcodex.vercel.app/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178C6?logo=typescript)](https://www.typescriptlang.org/)
+[![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
+[![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs)](https://nodejs.org/)
+[![Docker](https://img.shields.io/badge/Docker-Sandboxed-2496ED?logo=docker)](https://www.docker.com/)
 
-## Project structure
-- client/ - React + Vite frontend
-- server/ - Express + TypeScript backend
-- landing/ - Static marketing/landing page
-- docker/ - Dockerfiles for language runners and git worker
-- workspaces/ - Local project workspaces (dev or legacy storage)
-- supabase_schema.sql, supabase_storage_setup.sql, admin_schema_migration.sql, collaboration_schema_migration.sql - database and storage setup
+[**Explore Live Demo »**](https://cloudcodex.vercel.app/) · [Report Bug](https://github.com/ash-ftw/CloudCodex/issues) · [Request Feature](https://github.com/ash-ftw/CloudCodex/issues)
 
-## Prerequisites
-- Node.js 18+
-- Docker Engine (required for code execution and git worker)
-- Supabase project (URL, anon key, service role key)
-- Redis (docker-compose starts one for you)
+</div>
 
-## Quick start (local dev)
-1. Install dependencies
-	```bash
-	npm run install:all
-	```
+---
 
-2. Configure environment
-	Create a .env file at the repo root or in server/.env. The server loads the first existing file from:
-	- ENV_FILE (if set)
-	- .env (repo root)
-	- server/.env
-	- server/.env (resolved from server build output)
+## 🌟 Overview
 
-3. Start dev servers
-	```bash
-	npm run dev
-	```
+**CloudCodeX** is a full-featured, browser-based cloud IDE designed for fast, isolated, and collaborative development. Powered by Monaco Editor, React, Node.js/Express, and sandboxed Docker runners, CloudCodeX allows developers to write, compile, execute, and collaborate on code across 11+ programming languages in real time.
 
-	This starts:
-	- Server: http://localhost:3001
-	- Client: http://localhost:5173
-	- Landing page: http://localhost:5173/landing
+Whether you're building a multi-file project, running untrusted code in secure execution sandboxes, or pair programming with remote teammates, CloudCodeX provides an end-to-end cloud environment with zero local setup.
 
-## Docker-compose (dev)
-You can also run the server, client, and Redis via docker-compose:
+---
+
+## ✨ Features
+
+- ⚡ **Multi-Language Sandboxed Execution**: Run code in secure, isolated Docker containers or Judge0 instances across C, C++, Java, Python, JavaScript, TypeScript, Go, Rust, PHP, Ruby, and Bash.
+- 👥 **Real-Time Collaboration**: Live multi-user cursor presence, real-time file buffer synchronisation, user selection highlighting, and one-click "jump-to-collaborator" navigation.
+- 🔐 **Granular Role-Based Access Control (RBAC)**: Workspace roles (`owner`, `editor`, `viewer`) and shareable Room IDs with optional password protection.
+- 🕒 **Point-in-Time Version History**: File snapshots with built-in visual diffing and one-click restoration.
+- 🐙 **Integrated Git Worker**: Dedicated Docker worker executing remote repository clones, commits, branches, and push operations.
+- 💻 **Monaco Editor Experience**: Full syntax highlighting, auto-completion, multi-tab navigation, customizable themes, and terminal streaming via Socket.IO.
+- 🗄️ **Supabase Cloud Storage & Auth**: Persistent workspace and file storage with Row-Level Security (RLS) and social OAuth integrations.
+
+---
+
+## 🏛️ Architecture
+
+```mermaid
+graph TD
+    User([Browser Client]) -->|Vite / React 18| FE[Frontend UI / Monaco Editor]
+    FE -->|REST API / HTTPS| BE[Node.js Express API]
+    FE -->|WebSocket / Socket.IO| BE
+    BE -->|Auth & Metadata| Supabase[(Supabase DB & Storage)]
+    BE -->|Pub/Sub & Rooms| Redis[(Redis Cache)]
+    BE -->|Code Execution| DockerRunner[Docker Sandboxed Runners / Judge0]
+    BE -->|Git Operations| GitWorker[Docker Git Worker]
+```
+
+---
+
+## 🛠️ Tech Stack
+
+| Layer | Technologies |
+|---|---|
+| **Frontend** | React 18, Vite, TypeScript, Tailwind CSS, Monaco Editor, Lucide Icons, Socket.IO Client |
+| **Backend** | Node.js, Express, TypeScript, Socket.IO, Dockerode, Axios, Redis |
+| **Storage & Auth** | Supabase (PostgreSQL, Storage, RLS, OAuth), Redis |
+| **Sandbox Execution** | Docker Engine, Judge0 API / OnlineCompiler fallback |
+| **Hosting** | Vercel (Frontend & SPA Rewrites), Render / VPS / Docker (Backend & Runners) |
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+- [Node.js](https://nodejs.org/) (v18.0.0 or higher)
+- [npm](https://www.npmjs.com/) (v9 or higher)
+- [Docker Engine](https://docs.docker.com/engine/install/) (for local containerized execution)
+- [Supabase](https://supabase.com/) account (or local Supabase CLI)
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/ash-ftw/CloudCodex.git
+cd CloudCodex
+```
+
+### 2. Install Dependencies
+```bash
+npm run install:all
+```
+
+### 3. Setup Environment Variables
+Copy `.env.example` into root or `server/.env`:
+```bash
+cp .env.example .env
+```
+Fill in your credentials:
+- `SUPABASE_URL` and `SUPABASE_ANON_KEY`
+- `SUPABASE_SERVICE_ROLE_KEY`
+- `JWT_SECRET`
+- OAuth and SMTP credentials (optional for basic local dev)
+
+### 4. Database Setup
+Execute the following SQL schemas in your Supabase SQL Editor:
+1. `supabase_schema.sql` (Core users and workspaces)
+2. `supabase_storage_setup.sql` (Storage buckets and RLS policies)
+3. `admin_schema_migration.sql` (Admin controls)
+4. `collaboration_schema_migration.sql` (Real-time rooms & snapshots)
+
+### 5. Build Execution Sandboxes (Optional for Docker Mode)
+Build the language execution images locally:
+```bash
+# On Linux / macOS
+npm run docker:build-images:linux
+
+# On Windows (PowerShell)
+npm run docker:build-images:windows
+```
+
+### 6. Run Development Environment
+```bash
+npm run dev
+```
+
+The services will start at:
+- **Client Application**: [http://localhost:5173](http://localhost:5173)
+- **Backend API Server**: [http://localhost:3001](http://localhost:3001)
+- **Marketing Landing Page**: [http://localhost:5173/landing](http://localhost:5173/landing)
+
+---
+
+## 🐳 Docker Compose Quickstart
+
+Alternatively, run the complete local stack using Docker Compose:
 ```bash
 docker-compose up --build
 ```
 
-Note: language execution and git operations require their Docker images to be built separately. See the next section.
+---
 
-## Build execution images
-Language and git worker images are defined in docker/languages. Use the helper scripts:
-- Linux/macOS:
-	```bash
-	npm run docker:build-images:linux
-	```
-- Windows (PowerShell):
-	```bash
-	npm run docker:build-images:windows
-	```
+## 📦 Project Structure
 
-## Environment variables
-Required for core functionality:
-- SUPABASE_URL
-- SUPABASE_ANON_KEY
-- SUPABASE_SERVICE_ROLE_KEY
-- JWT_SECRET (recommended for production)
+```
+CloudCodex/
+├── .github/              # Issue templates, PR templates, and CI workflows
+├── client/               # React + Vite frontend SPA
+│   ├── src/components/   # Editor, FileTree, Collaborators, Terminal, Modals
+│   ├── src/hooks/        # Custom React hooks (useCollab, useExecution)
+│   └── src/store/        # Zustand state stores
+├── server/               # Express + TypeScript backend API
+│   ├── src/config/       # Environment & Docker configuration
+│   ├── src/controllers/  # API endpoints for files, workspaces, execution
+│   ├── src/middleware/   # Authentication, validation, and rate limiting
+│   ├── src/routes/       # Express route handlers
+│   └── src/services/     # Docker execution, Supabase storage, Socket handlers
+├── docker/               # Dockerfiles for execution sandboxes and git worker
+├── landing/              # Static marketing and landing page assets
+├── .env.example          # Template for required environment variables
+└── README.md
+```
 
-Optional (OAuth):
-- GITHUB_CLIENT_ID
-- GITHUB_CLIENT_SECRET
-- GITHUB_CALLBACK_URL (default http://localhost:3001/api/auth/github/callback)
-- GOOGLE_CLIENT_ID
-- GOOGLE_CLIENT_SECRET
-- GOOGLE_CALLBACK_URL (default http://localhost:3001/api/auth/google/callback)
+---
 
-Optional (SMTP):
-- SMTP_HOST
-- SMTP_PORT (default 587)
-- SMTP_SECURE (true/false)
-- SMTP_USER
-- SMTP_PASS
-- SMTP_FROM (default CloudCodeX <noreply@cloudcodex.com>)
+## 🤝 Contributing
 
-Optional (Docker/runtime):
-- DOCKER_SOCKET
-- DOCKER_EXECUTION_TIMEOUT
-- DOCKER_MEMORY_LIMIT
-- DOCKER_CPU_LIMIT
-- DOCKER_IMAGE_C_CPP
-- DOCKER_IMAGE_JAVA
-- DOCKER_IMAGE_PYTHON
-- DOCKER_IMAGE_JAVASCRIPT
-- DOCKER_IMAGE_GO
-- DOCKER_IMAGE_RUST
-- DOCKER_IMAGE_PHP
-- DOCKER_IMAGE_RUBY
-- DOCKER_IMAGE_BASH
-- DOCKER_IMAGE_GIT_WORKER
+Contributions make the open-source community an amazing place to learn, inspire, and create. Any contributions you make are **greatly appreciated**.
 
-Optional (storage + frontend):
-- WORKSPACE_ROOT (default ./workspaces)
-- MAX_ZIP_SIZE_MB
-- MAX_STORAGE_PER_USER_MB
-- FRONTEND_URL (default http://localhost:5173)
+Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and development workflow.
 
-## Supabase setup
-1. Run the SQL scripts in the Supabase SQL editor:
-	- supabase_schema.sql
-	- supabase_storage_setup.sql
-	- admin_schema_migration.sql (if you need admin features)
-	- collaboration_schema_migration.sql (for real-time collaboration, rooms & version history)
+1. Fork the Project
+2. Create your Feature Branch (`git checkout -b feature/AmazingFeature`)
+3. Commit your Changes (`git commit -m 'feat: add some amazing feature'`)
+4. Push to the Branch (`git push origin feature/AmazingFeature`)
+5. Open a Pull Request
 
-2. Make sure the Storage bucket project-files exists and RLS policies are configured.
+---
 
-For migrating local workspaces to Supabase Storage, see server/MIGRATION_GUIDE.md.
+## 🛡️ Security & Vulnerability Reporting
 
-## Build for production
-1. Build the client:
-	```bash
-	npm run build
-	```
+Please review our [SECURITY.md](SECURITY.md) to report vulnerabilities responsibly. Do **not** open public issues for sensitive security vulnerabilities.
 
-2. Build and start the server:
-	```bash
-	cd server
-	npm run build
-	npm run start
-	```
+---
 
-The server serves:
-- /landing from landing/
-- the built client SPA from client/dist
+## 📜 License
 
-## Scripts
-Root scripts:
-- npm run dev - run server and client in dev mode
-- npm run install:all - install dependencies for root, server, and client
-- npm run build - build the client
-- npm run docker:build-images:linux - build Docker images on Linux/macOS
-- npm run docker:build-images:windows - build Docker images on Windows
+Distributed under the MIT License. See [LICENSE](LICENSE) for more information.
 
-Server scripts (server/):
-- npm run dev - start server with tsx
-- npm run build - compile TypeScript
-- npm run start - run compiled server
-- npm run test - unit tests
-- npm run test:integration - integration tests
-- npm run lint - lint server code
+---
 
-Client scripts (client/):
-- npm run dev - start Vite dev server
-- npm run build - build client
-- npm run preview - preview build
-- npm run test - run Vitest
-- npm run lint - lint client code
+## 👤 Author & Maintainer
 
-## Notes
-- The frontend uses relative /api and /socket.io endpoints. In dev, Vite proxies those to the server.
-- Real-time collaboration uses Socket.IO rooms scoped per project (`project:<projectId>`) for live cursor positions, file buffers, and active presence tracking.
-- Git operations run inside a Docker worker container (cloudcodex-git-worker by default).
-- Code execution runs in language-specific Docker containers defined in docker/languages.
+**Ashish Jacob** ([@ash-ftw](https://github.com/ash-ftw))
+- GitHub: [ash-ftw](https://github.com/ash-ftw)
+- Live Project: [cloudcodex.vercel.app](https://cloudcodex.vercel.app/)

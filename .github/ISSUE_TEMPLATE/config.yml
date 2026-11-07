@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Ask a Question / Community Discussion
+    url: https://github.com/ash-ftw/CloudCodex/discussions
+    about: Ask questions or participate in open community discussions.
+  - name: Report a Security Vulnerability
+    url: https://github.com/ash-ftw/CloudCodex/security/advisories/new
+    about: Privately report a security vulnerability to the maintainers.

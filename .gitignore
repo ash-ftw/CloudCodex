@@ -41,12 +41,16 @@ coverage/
 *.tgz
 *.tar.gz
 
-# SQL, Markdown, CSV files
+# SQL, CSV files
 *.sql
-*.md
 *.csv
+
+# Sensitive credentials & keys
+*.pem
+*.key
+*.crt
+Backup-codes*.txt
+git_clone_debug.json
 
 # Agent
 .agent/
-Backup-codes-cloudcodex1.txt
-cloudcodex.pem
