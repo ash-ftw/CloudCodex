@@ -1,5 +1,10 @@
 FROM node:22-alpine
 
+# OCI Image Labels for GHCR / GitHub Packages
+LABEL org.opencontainers.image.source="https://github.com/ash-ftw/CloudCodex"
+LABEL org.opencontainers.image.description="CloudCodeX Sandboxed Worker Container"
+LABEL org.opencontainers.image.licenses="MIT"
+
 # Install git and ssh
 RUN apk add --no-cache git openssh-client
 

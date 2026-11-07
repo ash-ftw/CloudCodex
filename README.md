@@ -12,6 +12,7 @@
 [![React](https://img.shields.io/badge/React-18-61DAFB?logo=react)](https://react.dev/)
 [![Node.js](https://img.shields.io/badge/Node.js-18%2B-339933?logo=nodedotjs)](https://nodejs.org/)
 [![Docker](https://img.shields.io/badge/Docker-Sandboxed-2496ED?logo=docker)](https://www.docker.com/)
+[![GHCR Worker](https://img.shields.io/badge/GHCR-cloudcodex--worker-blue?logo=docker)](https://github.com/ash-ftw/CloudCodex/pkgs/container/cloudcodex-worker)
 
 [**Explore Live Demo »**](https://cloudcodex.vercel.app/) · [Report Bug](https://github.com/ash-ftw/CloudCodex/issues) · [Request Feature](https://github.com/ash-ftw/CloudCodex/issues)
 
@@ -130,6 +131,12 @@ The services will start at:
 Alternatively, run the complete local stack using Docker Compose:
 ```bash
 docker-compose up --build
+```
+
+### Pre-Built Worker Container (GHCR)
+The CloudCodeX sandboxed worker is published on the GitHub Container Registry:
+```bash
+docker pull ghcr.io/ash-ftw/cloudcodex-worker:latest
 ```
 
 ---
